@@ -1,0 +1,23 @@
+{
+  "name": "qa-suite-netlify-functions",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "18"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "robotstxt-parser": "^1.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.5",
+    "@netlify/functions": "^2.8.2"
+  }
+}
