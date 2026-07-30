@@ -11,9 +11,7 @@
   },
   "dependencies": {
     "firebase-admin": "^12.7.0",
-    "axios": "^1.7.9",
-    "cheerio": "^1.0.0",
-    "robotstxt-parser": "^1.0.1"
+    "axios": "^1.7.9"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

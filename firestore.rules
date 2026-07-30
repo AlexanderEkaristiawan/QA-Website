@@ -1,24 +1,81 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow all authenticated users to read/write any collection used by the app
-    match /projects/{document=**} {
-      allow read, write: if request.auth != null;
+    
+    function isAuthenticated() {
+      return request.auth != null;
     }
-    match /audit_jobs/{document=**} {
-      allow read, write: if request.auth != null;
+    
+    function isProjectMember(projectId) {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId == request.auth.uid ||
+        request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.members
+      );
     }
-    match /bug_list/{document=**} {
-      allow read, write: if request.auth != null;
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if request.auth.uid == userId;
     }
-    match /test_cases/{document=**} {
-      allow read, write: if request.auth != null;
+    
+    match /projects/{projectId} {
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.members);
+      // Only owners/admins can update/delete project config
+      allow update, delete: if isAuthenticated() && (
+        resource.data.ownerId == request.auth.uid || 
+        resource.data.members[request.auth.uid] in ['owner', 'admin']
+      );
     }
-
-    // Deny everything else
-    match /{document=**} {
-      allow read, write: if false;
+    
+    match /audit_jobs/{jobId} {
+      // Jobs are created via Netlify Function (Admin SDK)
+      // Reading allowed if user is in project
+      allow read: if isProjectMember(resource.data.projectId);
+      allow write: if false; // Only Admin SDK can write audits
+      
+      match /pages/{pageId} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/audit_jobs/$(jobId)).data.projectId);
+      }
+      match /vulnerabilities/{vulnId} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/audit_jobs/$(jobId)).data.projectId);
+      }
+      match /performance_metrics/{metricId} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/audit_jobs/$(jobId)).data.projectId);
+      }
+    }
+    
+    match /bug_list/{bugId} {
+      // Create/Update allowed for project members (Admin SDK creates auto-bugs)
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow read, update: if isProjectMember(resource.data.projectId);
+      allow delete: if isProjectMember(resource.data.projectId) && (
+        get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.members[request.auth.uid] in ['owner', 'admin']
+      );
+      
+      match /comments/{commentId} {
+        allow read: if isProjectMember(get(/databases/$(database)/documents/bug_list/$(bugId)).data.projectId);
+        allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isProjectMember(get(/databases/$(database)/documents/bug_list/$(bugId)).data.projectId);
+        allow update, delete: if request.auth.uid == resource.data.userId;
+      }
+    }
+    
+    match /test_cases/{testCaseId} {
+      allow create: if isProjectMember(request.resource.data.projectId);
+      allow read, update: if isProjectMember(resource.data.projectId);
+      allow delete: if isProjectMember(resource.data.projectId) && (
+        get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.members[request.auth.uid] in ['owner', 'admin']
+      );
+      
+      match /test_runs/{runId} {
+        allow read, create: if isProjectMember(get(/databases/$(database)/documents/test_cases/$(testCaseId)).data.projectId);
+      }
+    }
+    
+    match /notifications/{notificationId} {
+      allow read, update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if false; // Created via Admin SDK
     }
   }
 }
-
