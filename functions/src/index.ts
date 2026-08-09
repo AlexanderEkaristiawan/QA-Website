@@ -28,35 +28,75 @@ export const onAuditCreated = onDocumentCreated('audit_jobs/{jobId}', async (eve
   try {
     await jobRef?.update({ status: 'running' });
 
+    // Normalize raw Firestore authSettings into the typed ZAPRunOptions shape.
+    // Only forward auth if an explicit authType is set, otherwise pass undefined.
+    const rawAuth = project.authSettings as Record<string, string> | undefined;
+    const zapAuthSettings = rawAuth?.authType
+      ? {
+          authType: rawAuth.authType as 'none' | 'basic' | 'session',
+          basicAuthUsername: rawAuth.basicAuthUsername,
+          basicAuthPassword: rawAuth.basicAuthPassword,
+          sessionCookie: rawAuth.sessionCookie,
+        }
+      : undefined;
+
     const [performanceResult, seoResult, securityResult] = await Promise.allSettled([
       runPageSpeed(project.targetUrl),
-      runSEOCrawler(project.targetUrl, project.authSettings || {}),
+      runSEOCrawler(project.targetUrl, rawAuth || {}),
       runZAPScan({
         targetUrl: project.targetUrl,
-        authSettings: project.authSettings || {},
+        authSettings: zapAuthSettings,
         contextName: project.name?.replace(/[^a-zA-Z0-9_-]/g, '_'),
       }),
     ]);
 
+    // ── Per-bot result extraction ──────────────────────────────────────────
+    const perfStatus = performanceResult.status === 'fulfilled' ? 'completed' : 'failed';
+    const seoStatus  = seoResult.status  === 'fulfilled' ? 'completed' : 'failed';
+    const secStatus  = securityResult.status === 'fulfilled' ? 'completed' : 'failed';
+
     const performanceSummary = performanceResult.status === 'fulfilled'
-      ? performanceResult.value
-      : { performance: 0, accessibility: 0, seo: 0, bestPractices: 0 };
+      ? { ...performanceResult.value, status: 'completed' as const }
+      : { performance: 0, accessibility: 0, seo: 0, bestPractices: 0, status: 'failed' as const };
 
-    const seoData = seoResult.status === 'fulfilled'
-      ? seoResult.value
-      : { totalErrors: 0, pageCount: 0 };
+    const seoSummary = seoResult.status === 'fulfilled'
+      ? { ...seoResult.value, status: 'completed' as const }
+      : { totalErrors: 0, pageCount: 0, status: 'failed' as const };
 
-    const securityData = securityResult.status === 'fulfilled'
-      ? securityResult.value
-      : { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [] };
+    const securitySummary = securityResult.status === 'fulfilled'
+      ? { ...securityResult.value, status: 'completed' as const }
+      : { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [], status: 'failed' as const };
 
+    // ── Collect per-bot errors ─────────────────────────────────────────────
+    const errors: Array<{ bot: string; message: string; retriesLeft: number }> = [];
+    if (performanceResult.status === 'rejected') {
+      errors.push({ bot: 'performance', message: String(performanceResult.reason), retriesLeft: 0 });
+    }
+    if (seoResult.status === 'rejected') {
+      errors.push({ bot: 'seo', message: String(seoResult.reason), retriesLeft: 0 });
+    }
+    if (securityResult.status === 'rejected') {
+      errors.push({ bot: 'security', message: String(securityResult.reason), retriesLeft: 0 });
+    }
+
+    // ── Determine overall job status ───────────────────────────────────────
+    const succeededCount = [perfStatus, seoStatus, secStatus].filter(s => s === 'completed').length;
+    const overallStatus = succeededCount === 3 ? 'completed'
+      : succeededCount === 0 ? 'failed'
+      : 'partial-failed';
+
+    // ── Write results using the `summaries` shape the frontend expects ─────
     await jobRef?.update({
-      status: 'completed',
-      performanceSummary,
-      seoSummary: seoData,
-      securitySummary: securityData,
+      status: overallStatus,
+      errors,
+      summaries: {
+        performance: performanceSummary,
+        seo: seoSummary,
+        security: securitySummary,
+      },
     });
 
+    // ── Auto-generate bugs for significant findings ────────────────────────
     const bugs: Array<{
       projectId: string;
       title: string;
@@ -77,38 +117,52 @@ export const onAuditCreated = onDocumentCreated('audit_jobs/{jobId}', async (eve
       });
     }
 
-    if (securityData.highAlerts > 0) {
+    if (securitySummary.highAlerts > 0) {
       bugs.push({
         projectId,
-        title: `${securityData.highAlerts} High Risk Security Vulnerabilities`,
+        title: `${securitySummary.highAlerts} High Risk Security Vulnerabilities`,
         source: 'SECURITY',
         severity: 'Critical',
-        description: `${securityData.highAlerts} high-risk vulnerabilities were detected. Review and patch immediately.`,
+        description: `${securitySummary.highAlerts} high-risk vulnerabilities were detected. Review and patch immediately.`,
         status: 'Open',
       });
     }
 
-    if (seoData.totalErrors > 0) {
+    if (seoSummary.totalErrors > 0) {
       bugs.push({
         projectId,
-        title: `${seoData.totalErrors} SEO Issues Detected`,
+        title: `${seoSummary.totalErrors} SEO Issues Detected`,
         source: 'SEO',
-        severity: seoData.totalErrors > 5 ? 'Major' : 'Minor',
-        description: `${seoData.totalErrors} SEO issues were found across ${seoData.pageCount} pages.`,
+        severity: seoSummary.totalErrors > 5 ? 'Major' : 'Minor',
+        description: `${seoSummary.totalErrors} SEO issues were found across ${seoSummary.pageCount} pages.`,
         status: 'Open',
       });
     }
 
-    const batch = db.batch();
-    for (const bug of bugs) {
-      const bugRef = db.collection('bug_list').doc();
-      batch.set(bugRef, {
-        ...bug,
-        remediationGuide: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    // ── Write bugs using atomic bugCounter transaction for shortIds ─────────
+    if (bugs.length > 0) {
+      const projectRef = db.collection('projects').doc(projectId);
+      await db.runTransaction(async (tx) => {
+        const projSnap = await tx.get(projectRef);
+        let counter = projSnap.data()?.bugCounter || 0;
+        tx.update(projectRef, { bugCounter: counter + bugs.length });
+
+        for (const bug of bugs) {
+          counter++;
+          const bugRef = db.collection('bug_list').doc();
+          tx.set(bugRef, {
+            ...bug,
+            shortId: `QAS-${counter}`,
+            tags: [],
+            assignees: [],
+            commentCount: 0,
+            remediationGuide: null,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastEditedTime: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
       });
     }
-    await batch.commit();
 
   } catch (error) {
     console.error('Audit failed:', error);
@@ -136,9 +190,15 @@ export const triggerAudit = onCall(async (request) => {
     projectId,
     status: 'pending',
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    seoSummary: { totalErrors: 0, pageCount: 0 },
-    securitySummary: { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [] },
-    performanceSummary: { performance: 0, accessibility: 0, seo: 0, bestPractices: 0 },
+    zapScanId: null,
+    zapSpiderId: null,
+    zapContextId: null,
+    errors: [],
+    summaries: {
+      seo:         { totalErrors: 0, pageCount: 0,                                             status: 'pending' },
+      security:    { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [],         status: 'pending' },
+      performance: { performance: 0, accessibility: 0, seo: 0, bestPractices: 0,               status: 'pending' },
+    },
   });
 
   return { jobId: jobRef.id };
@@ -172,4 +232,3 @@ export const generateRemediation = onCall(async (request) => {
 
   return { success: true, guide };
 });
-</parameter>

@@ -317,4 +317,3 @@ export async function scanOpenApi(
     timeoutMs: options?.timeoutMs,
   });
 }
-</parameter>
