@@ -1,5 +1,5 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
-import { jsonResponse } from './_shared/firestore'
+import { jsonResponse } from './_shared/response'
 import axios from 'axios'
 
 async function callGemini(prompt: string): Promise<string> {

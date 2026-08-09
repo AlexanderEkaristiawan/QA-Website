@@ -1,14 +1,26 @@
 import * as admin from 'firebase-admin'
+import { jsonResponse, corsHeaders } from './response'
+
+export { jsonResponse, corsHeaders }
 
 // Initialize Firebase Admin once (lazy singleton)
 function initAdmin(): admin.app.App {
   if (admin.apps.length > 0) return admin.apps[0]!
 
-  // Service account key provided as a JSON string in Netlify env var
+  // Service account key provided as a JSON string or Base64 encoded JSON string in Netlify env var
   // NEVER commit this key to the repository
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+  let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
   if (!serviceAccountJson) {
     throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set')
+  }
+
+  // Transparently decode Base64 if the string does not start with '{'
+  if (!serviceAccountJson.trim().startsWith('{')) {
+    try {
+      serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8')
+    } catch (err: any) {
+      throw new Error(`Failed to decode Base64 FIREBASE_SERVICE_ACCOUNT_KEY: ${err.message}`)
+    }
   }
 
   const serviceAccount = JSON.parse(serviceAccountJson) as admin.ServiceAccount
@@ -30,27 +42,4 @@ export function getFieldValue() {
 
 export function getTimestamp() {
   return admin.firestore.Timestamp
-}
-
-// CORS helper — allow only trusted origins in production
-export function corsHeaders(origin?: string) {
-  const allowed = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173']
-  const o = origin || '*'
-  if (process.env.NODE_ENV === 'production' && !allowed.includes(o)) {
-    return { 'Access-Control-Allow-Origin': allowed[0] }
-  }
-  return {
-    'Access-Control-Allow-Origin': o,
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-  }
-}
-
-// Standard JSON response helper
-export function jsonResponse(statusCode: number, body: unknown, origin?: string) {
-  return {
-    statusCode,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-    body: JSON.stringify(body),
-  }
 }
