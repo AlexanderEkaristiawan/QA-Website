@@ -1,6 +1,6 @@
 [build]
   base = "frontend"
-  command = "npm run build"
+  command = "chmod -R +x node_modules/.bin 2>/dev/null || true; npm run build"
   publish = "dist"
   functions = "../netlify/functions"
 
