@@ -7,27 +7,41 @@ export { jsonResponse, corsHeaders }
 function initAdmin(): admin.app.App {
   if (admin.apps.length > 0) return admin.apps[0]!
 
-  // Service account key provided as a JSON string or Base64 encoded JSON string in Netlify env var
-  // NEVER commit this key to the repository
-  let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
-  if (!serviceAccountJson) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY env var is not set')
-  }
+  let serviceAccount: admin.ServiceAccount | undefined
 
-  // Transparently decode Base64 if the string does not start with '{'
-  if (!serviceAccountJson.trim().startsWith('{')) {
-    try {
-      serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8')
-    } catch (err: any) {
-      throw new Error(`Failed to decode Base64 FIREBASE_SERVICE_ACCOUNT_KEY: ${err.message}`)
+  // Option 1: Discrete env vars (significantly smaller payload size)
+  if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+    serviceAccount = {
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }
+  } 
+  // Option 2: Single JSON or Base64 string
+  else if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+    let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim()
+    if (!serviceAccountJson.startsWith('{')) {
+      try {
+        serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8')
+      } catch (err: any) {
+        throw new Error(`Failed to decode Base64 FIREBASE_SERVICE_ACCOUNT_KEY: ${err.message}`)
+      }
+    }
+    const parsed = JSON.parse(serviceAccountJson)
+    serviceAccount = {
+      projectId: parsed.project_id || process.env.FIREBASE_PROJECT_ID,
+      clientEmail: parsed.client_email,
+      privateKey: parsed.private_key ? parsed.private_key.replace(/\\n/g, '\n') : undefined,
     }
   }
 
-  const serviceAccount = JSON.parse(serviceAccountJson) as admin.ServiceAccount
+  if (!serviceAccount || !serviceAccount.privateKey || !serviceAccount.clientEmail) {
+    throw new Error('Firebase credentials not properly configured (FIREBASE_PRIVATE_KEY + FIREBASE_CLIENT_EMAIL or FIREBASE_SERVICE_ACCOUNT_KEY required)')
+  }
 
   return admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    projectId: process.env.FIREBASE_PROJECT_ID,
+    projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount.projectId,
   })
 }
 
