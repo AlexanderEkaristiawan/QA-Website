@@ -19,6 +19,13 @@ export interface Project {
   members: Record<string, MemberRole>
   bugCounter: number
   createdAt: FireTimestamp | Date
+  // Extension & Crawl Settings
+  crawlPageLimit?: number              // default 25
+  crawlMaxDurationMin?: number         // default 15 (extension crawl only)
+  performanceThresholdMs?: number      // default 2000 (auto-bug drafting)
+  titleLengthRange?: { min: number; max: number }        // default { min: 30, max: 65 }
+  descriptionLengthRange?: { min: number; max: number }  // default { min: 120, max: 320 }
+  extensionApiToken?: string           // project-scoped, hashed, short-lived
   // Legacy — some older docs still have userId
   userId?: string
 }
@@ -40,6 +47,8 @@ export type AuditStatus =
   | 'failed'
   | 'auth-failed'
   | 'partial-failed'
+
+export type CrawlMode = 'server' | 'extension' | 'extension-instant'
 
 export type BotStatus = 'pending' | 'running' | 'completed' | 'failed' | 'scanning' | 'unavailable'
 
@@ -81,6 +90,7 @@ export interface AuditJob {
   id: string
   projectId: string
   status: AuditStatus
+  crawlMode?: CrawlMode
   timestamp: FireTimestamp | Date
   zapScanId: string | null
   zapSpiderId?: string
@@ -107,6 +117,62 @@ export interface PageResult {
   canonicalUrl: string | null
   robotsMeta: string | null
   issues: SEOIssue[]
+  // Extension crawl fields (populated by extension content script)
+  source?: 'server' | 'extension' | 'extension-instant'
+  brokenImages?: number
+  loadTimeMs?: number
+  domReadyMs?: number
+  titleLength?: number
+  descriptionLength?: number
+  missingAltCount?: number
+  missingTitleCount?: number
+  duplicateLinksCount?: number
+  hasCanonical?: boolean
+  hasRobotsMeta?: boolean
+  hasAnalyticsScript?: boolean
+  hasOpenGraph?: boolean
+  hasTwitterCard?: boolean
+  hasSchemaOrg?: boolean
+  headerCounts?: { h1: number; h2: number; h3: number; h4: number; h5: number; h6: number }
+  links?: string[]
+  timestamp?: string
+}
+
+// === Extension Page Metrics (scraped by content script) ===
+export interface ExtensionPageMetrics {
+  url: string
+  timestamp: string
+  title: string
+  titleLength: number
+  metaDescription: string
+  descriptionLength: number
+  keywords: string
+  canonicalUrl: string | null
+  robotsMeta: string | null
+  langAttr: string | null
+  author: string | null
+  headerCounts: { h1: number; h2: number; h3: number; h4: number; h5: number; h6: number }
+  headers: { level: number; text: string }[]
+  imageCount: number
+  missingAltCount: number
+  missingTitleCount: number
+  brokenImages: number
+  images: { src: string; alt: string; title: string; broken: boolean }[]
+  linkCount: number
+  internalLinks: number
+  externalLinks: number
+  duplicateLinksCount: number
+  missingLinkTitleCount: number
+  links: { href: string; text: string; type: 'standard' | 'anchor' | 'js' | 'mailto'; title: string; internal: boolean; duplicate: boolean }[]
+  hasAnalyticsScript: boolean
+  analyticsScripts: string[]
+  hasOpenGraph: boolean
+  openGraphTags: Record<string, string>
+  hasTwitterCard: boolean
+  twitterCardTags: Record<string, string>
+  hasSchemaOrg: boolean
+  loadTimeMs: number
+  domReadyMs: number
 }
 
 export interface Vulnerability {

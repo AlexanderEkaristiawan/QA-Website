@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "QA-Suite Companion",
+  "version": "1.0.0",
+  "description": "Instant single-page audits and multi-page authenticated crawls for QA-Suite projects.",
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "QA-Suite Companion"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "web_accessible_resources": []
+}
