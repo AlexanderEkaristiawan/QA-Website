@@ -93,21 +93,26 @@ const loadExampleData = async () => {
     loadingExample.value = false
   }
 }
+
+const formatProjectDate = (value: Project['createdAt']) => {
+  const date = 'toDate' in value ? value.toDate() : value
+  return date.toLocaleDateString()
+}
 </script>
 
 <template>
   <div>
-    <div class="mb-8 flex items-center justify-between flex-wrap gap-4">
-      <div>
+    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="min-w-0">
         <h1 class="text-2xl font-bold text-gray-900">Projects</h1>
         <p class="mt-1 text-gray-500">Manage your QA workspaces</p>
       </div>
-      <div class="flex items-center gap-3">
-        <button @click="loadExampleData" class="btn-secondary" :disabled="loadingExample">
+      <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+        <button @click="loadExampleData" class="btn-secondary w-full sm:w-auto" :disabled="loadingExample">
           <span v-if="loadingExample" class="h-4 w-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin inline-block mr-1"></span>
           Load Example Data
         </button>
-        <button @click="showCreateForm = true" class="btn-primary">+ New Project</button>
+        <button @click="showCreateForm = true" class="btn-primary w-full sm:w-auto">+ New Project</button>
       </div>
     </div>
 
@@ -130,8 +135,8 @@ const loadExampleData = async () => {
     </div>
 
     <div v-else class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-      <div v-for="project in projects" :key="project.id" class="card">
-        <div class="p-6">
+      <div v-for="project in projects" :key="project.id" class="card min-w-0">
+        <div class="p-4 sm:p-6">
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
               <router-link
@@ -142,14 +147,14 @@ const loadExampleData = async () => {
               </router-link>
               <p class="mt-1 text-sm text-gray-500 truncate">{{ project.targetUrl }}</p>
               <p class="mt-2 text-xs text-gray-400">
-                Created {{ project.createdAt?.toDate?.().toLocaleDateString() || 'Just now' }}
+                Created {{ formatProjectDate(project.createdAt) || 'Just now' }}
               </p>
             </div>
           </div>
-          <div class="mt-4 flex items-center gap-2">
-            <router-link :to="`/projects/${project.id}`" class="btn-secondary text-xs">Open</router-link>
-            <router-link :to="`/projects/${project.id}/history`" class="btn-secondary text-xs">Trends</router-link>
-            <button @click="deleteProject(project.id)" class="btn-danger text-xs ml-auto">Delete</button>
+          <div class="mt-4 grid grid-cols-2 gap-2 sm:flex sm:items-center">
+            <router-link :to="`/projects/${project.id}`" class="btn-secondary min-w-0 px-3 text-xs">Open</router-link>
+            <router-link :to="`/projects/${project.id}/history`" class="btn-secondary min-w-0 px-3 text-xs">Trends</router-link>
+            <button @click="deleteProject(project.id)" class="btn-danger col-span-2 px-3 text-xs sm:ml-auto">Delete</button>
           </div>
         </div>
       </div>

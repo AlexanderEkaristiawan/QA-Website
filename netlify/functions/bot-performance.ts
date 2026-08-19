@@ -7,13 +7,19 @@ interface PageSpeedCategory {
 }
 
 interface PageSpeedResponse {
-  categories: {
+  categories?: {
     performance?: PageSpeedCategory
     accessibility?: PageSpeedCategory
     'best-practices'?: PageSpeedCategory
     seo?: PageSpeedCategory
   }
   lighthouseResult?: {
+    categories?: {
+      performance?: PageSpeedCategory
+      accessibility?: PageSpeedCategory
+      'best-practices'?: PageSpeedCategory
+      seo?: PageSpeedCategory
+    }
     audits?: Record<string, { numericValue?: number }>
   }
 }
@@ -50,19 +56,20 @@ export const handler: Handler = async (event: HandlerEvent) => {
       category: 'performance',
       // Also fetch these
     }
-    const categories = ['performance', 'accessibility', 'best-practices', 'seo']
-    const catParams = categories.map(c => `category=${c}`).join('&')
+    const requestedCategories = ['performance', 'accessibility', 'best-practices', 'seo']
+    const catParams = requestedCategories.map(c => `category=${c}`).join('&')
 
     const url = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(targetUrl)}&strategy=mobile&${catParams}${apiKey ? `&key=${apiKey}` : ''}`
 
     const response = await axios.get<PageSpeedResponse>(url, { timeout: 30000 })
     const data = response.data
+    const scoreCategories = data.lighthouseResult?.categories ?? data.categories
 
     const performanceSummary = {
-      performance: toScore(data.categories?.performance),
-      accessibility: toScore(data.categories?.accessibility),
-      bestPractices: toScore(data.categories?.['best-practices']),
-      seo: toScore(data.categories?.seo),
+      performance: toScore(scoreCategories?.performance),
+      accessibility: toScore(scoreCategories?.accessibility),
+      bestPractices: toScore(scoreCategories?.['best-practices']),
+      seo: toScore(scoreCategories?.seo),
       status: 'completed',
     }
 
@@ -106,6 +113,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         description: `PageSpeed Insights scores — Performance: ${performanceSummary.performance}, Accessibility: ${performanceSummary.accessibility}, SEO: ${performanceSummary.seo}, Best Practices: ${performanceSummary.bestPractices}. FCP: ${(metrics.fcp / 1000).toFixed(1)}s, LCP: ${(metrics.lcp / 1000).toFixed(1)}s.`,
         remediationGuide: null,
         commentCount: 0,
+        screenshotUrls: [],
         createdAt: fv.serverTimestamp(),
         lastEditedTime: fv.serverTimestamp(),
       })

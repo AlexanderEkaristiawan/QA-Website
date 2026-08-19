@@ -127,6 +127,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         description: `OWASP ZAP scan found ${highAlerts} high-risk, ${mediumAlerts} medium-risk, and ${lowAlerts} low-risk vulnerabilities.`,
         remediationGuide: null,
         commentCount: 0,
+        screenshotUrls: [],
         createdAt: fv.serverTimestamp(),
         lastEditedTime: fv.serverTimestamp(),
       })
@@ -153,6 +154,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         description: `Security headers missing from response: ${missingHeaders.join(', ')}. These protect against XSS, clickjacking, and MIME-sniffing attacks.`,
         remediationGuide: null,
         commentCount: 0,
+        screenshotUrls: [],
         createdAt: fv.serverTimestamp(),
         lastEditedTime: fv.serverTimestamp(),
       })

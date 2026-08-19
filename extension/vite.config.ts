@@ -14,9 +14,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: resolve(__dirname, 'src/popup/popup.html'),
+        'src/background/service-worker': resolve(__dirname, 'src/background/service-worker.ts'),
+        'src/content/scraper': resolve(__dirname, 'src/content/scraper.ts'),
       },
       output: {
-        // Keep chunk names predictable for MV3 CSP
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash][extname]',

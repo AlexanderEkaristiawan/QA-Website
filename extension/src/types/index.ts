@@ -7,7 +7,9 @@ export interface ExtensionConfig {
 }
 
 export interface CrawlSession {
-  jobId: string
+  // Optional for a direct extension crawl. The ingestion endpoint creates the
+  // first job and the service worker persists its returned ID for later pages.
+  jobId?: string
   projectId: string
   apiToken: string
   apiBaseUrl: string
@@ -60,6 +62,14 @@ export interface PageMetrics {
   extraLinkTags: { rel: string; href: string }[]
   loadTimeMs: number
   domReadyMs: number
+  security?: SecurityResponseData
+}
+
+export interface SecurityResponseData {
+  headers: Record<string, string>
+  setCookieHeaders: string[]
+  source: 'navigation' | 'background-request' | 'unavailable'
+  inspectedUrl: string
 }
 
 export interface ImageEntry {
@@ -111,6 +121,12 @@ export interface MessageInstantAuditResult {
   metrics: PageMetrics
 }
 
+export interface MessageGetSecurityHeaders {
+  type: 'GET_SECURITY_HEADERS'
+  url: string
+  tabId?: number
+}
+
 export type ExtMessage =
   | MessageStartCrawl
   | MessageCrawlControl
@@ -118,3 +134,4 @@ export type ExtMessage =
   | MessageAuthLoss
   | MessageRunInstantAudit
   | MessageInstantAuditResult
+  | MessageGetSecurityHeaders

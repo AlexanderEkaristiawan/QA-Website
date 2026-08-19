@@ -154,6 +154,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
             description: bug.description,
             remediationGuide: null,
             commentCount: 0,
+            screenshotUrls: [],
             createdAt: fv.serverTimestamp(),
             lastEditedTime: fv.serverTimestamp(),
           })

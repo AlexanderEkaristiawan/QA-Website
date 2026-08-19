@@ -1,7 +1,26 @@
 import { ref } from 'vue'
+import type { CrawlMode } from '@/types'
+import { doc, updateDoc } from 'firebase/firestore'
+import { db } from '@/firebase/config'
 
 const NETLIFY_BASE = import.meta.env.VITE_NETLIFY_FUNCTIONS_URL || '/.netlify/functions'
 const ZAP_POLL_INTERVAL_MS = 30_000
+
+// Helper to compute SHA-256 hex string using browser Web Crypto API
+async function sha256Hex(text: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(text)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+function generateClientToken(): string {
+  const array = new Uint8Array(24)
+  crypto.getRandomValues(array)
+  const hex = Array.from(array, b => b.toString(16).padStart(2, '0')).join('')
+  return `qas_ext_${hex}`
+}
 
 export function useAudit() {
   const starting = ref(false)
@@ -9,10 +28,14 @@ export function useAudit() {
   let zapPollTimer: ReturnType<typeof setInterval> | null = null
 
   /**
-   * Start a full audit via Netlify Function.
+   * Start an audit via Netlify Function.
    * Returns the created jobId from Firestore.
    */
-  async function startAudit(projectId: string, userId: string): Promise<string | null> {
+  async function startAudit(
+    projectId: string,
+    userId: string,
+    crawlMode: CrawlMode = 'server'
+  ): Promise<string | null> {
     starting.value = true
     error.value = null
 
@@ -20,7 +43,7 @@ export function useAudit() {
       const response = await fetch(`${NETLIFY_BASE}/start-audit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, userId }),
+        body: JSON.stringify({ projectId, userId, crawlMode }),
       })
 
       const data = await response.json()
@@ -35,6 +58,43 @@ export function useAudit() {
       return null
     } finally {
       starting.value = false
+    }
+  }
+
+  /**
+   * Request / rotate a project-scoped Chrome Extension API Token.
+   * Uses Netlify Function if reachable, or falls back seamlessly to client-side
+   * SHA-256 hash generation and Firestore storage for local development.
+   */
+  async function issueExtensionToken(projectId: string, userId: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${NETLIFY_BASE}/issue-extension-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, userId }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.token) return data.token as string
+      }
+      throw new Error(`HTTP ${response.status}`)
+    } catch (err: any) {
+      console.warn('Netlify function unreachable, using client-side token generation fallback:', err.message)
+      // Fallback: Generate token in browser and write SHA-256 hash directly to Firestore
+      try {
+        const rawToken = generateClientToken()
+        const tokenHash = await sha256Hex(rawToken)
+        const projectRef = doc(db, `projects/${projectId}`)
+        await updateDoc(projectRef, {
+          extensionApiToken: tokenHash,
+          extensionApiTokenIssuedAt: new Date().toISOString(),
+        })
+        return rawToken
+      } catch (fallbackErr: any) {
+        console.error('Client-side token generation failed:', fallbackErr)
+        return null
+      }
     }
   }
 
@@ -93,5 +153,6 @@ export function useAudit() {
     }
   }
 
-  return { startAudit, startZapPolling, stopZapPolling, starting, error }
+  return { startAudit, issueExtensionToken, startZapPolling, stopZapPolling, starting, error }
 }
+

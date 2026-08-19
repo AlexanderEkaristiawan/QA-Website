@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function projectDoc(projectId) {
+      return firestore.get(/databases/(default)/documents/projects/$(projectId));
+    }
+
+    function isProjectMember(projectId) {
+      return request.auth != null
+        && projectDoc(projectId).data != null
+        && (
+          projectDoc(projectId).data.ownerId == request.auth.uid
+          || (
+            'members' in projectDoc(projectId).data
+            && request.auth.uid in projectDoc(projectId).data.members
+          )
+        );
+    }
+
+    match /projects/{projectId}/bugs/{bugShortId}/{fileName} {
+      allow read: if isProjectMember(projectId);
+      allow create, update: if isProjectMember(projectId)
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if isProjectMember(projectId);
+    }
+  }
+}

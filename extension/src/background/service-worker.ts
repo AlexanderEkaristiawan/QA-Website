@@ -5,11 +5,45 @@
  * service worker can be killed/restarted by Chrome without losing progress.
  */
 
-import type { CrawlSession, ExtMessage, PageMetrics } from '../types/index'
+import type { CrawlSession, ExtMessage, PageMetrics, SecurityResponseData } from '../types/index'
 
 const CRAWL_STATE_KEY = 'qas_crawl_session'
 const DELAY_MS = 1000
 const LOGIN_PATTERNS = ['/login', '/signin', '/sign-in', '/auth', '/session/new', 'login.', 'accounts.']
+const securityResponses = new Map<number, SecurityResponseData>()
+
+// Keep the headers from real page navigations. This is the only place the
+// extension can observe Set-Cookie flags, which are intentionally hidden from page JavaScript.
+chrome.webRequest.onHeadersReceived.addListener(
+  details => {
+    if (details.type !== 'main_frame' || details.tabId < 0) return
+
+    const headers: Record<string, string> = {}
+    const setCookieHeaders: string[] = []
+    for (const header of details.responseHeaders ?? []) {
+      const name = header.name.toLowerCase()
+      const value = header.value ?? ''
+      if (name === 'set-cookie') setCookieHeaders.push(value)
+      else headers[name] = headers[name] ? `${headers[name]}, ${value}` : value
+    }
+
+    securityResponses.set(details.tabId, {
+      headers,
+      setCookieHeaders,
+      source: 'navigation',
+      inspectedUrl: details.url,
+    })
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] },
+  ['responseHeaders', 'extraHeaders'],
+)
+
+// Open side panel when user clicks the extension action icon in the toolbar
+if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+  chrome.sidePanel
+    .setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((err: any) => console.error('Side panel error:', err))
+}
 
 // ── Message listener ─────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) => {
@@ -25,9 +59,46 @@ chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) =>
   } else if (msg.type === 'STOP_CRAWL') {
     updateStatus('stopped')
     sendResponse({ ok: true })
+  } else if (msg.type === 'GET_SECURITY_HEADERS') {
+    getSecurityHeaders(msg.url, msg.tabId)
+      .then(sendResponse)
+      .catch(() => sendResponse({
+        headers: {},
+        setCookieHeaders: [],
+        source: 'unavailable',
+        inspectedUrl: msg.url,
+      } satisfies SecurityResponseData))
   }
   return true // Keep channel open for async
 })
+
+async function getSecurityHeaders(url: string, tabId?: number): Promise<SecurityResponseData> {
+  const navigationResponse = tabId === undefined ? undefined : securityResponses.get(tabId)
+  if (navigationResponse && equivalentUrl(navigationResponse.inspectedUrl, url)) {
+    return navigationResponse
+  }
+
+  const response = await fetch(url, { cache: 'no-store', credentials: 'omit', redirect: 'follow' })
+  const headers: Record<string, string> = {}
+  response.headers.forEach((value, name) => { headers[name.toLowerCase()] = value })
+  return {
+    headers,
+    // Fetch intentionally does not expose Set-Cookie; navigation capture above handles it when available.
+    setCookieHeaders: [],
+    source: 'background-request',
+    inspectedUrl: response.url || url,
+  }
+}
+
+function equivalentUrl(left: string, right: string): boolean {
+  try {
+    const a = new URL(left)
+    const b = new URL(right)
+    return a.origin === b.origin && a.pathname === b.pathname
+  } catch {
+    return left === right
+  }
+}
 
 // ── Start a new crawl session ─────────────────────────────────────────────────
 async function startCrawl(
@@ -161,8 +232,10 @@ async function crawlPage(url: string, session: CrawlSession): Promise<PageMetric
     const metrics = results[0]?.result as PageMetrics
     if (!metrics) return null
 
-    // POST to ingestion endpoint
-    await ingestPage(metrics, session)
+    // POST to ingestion endpoint. Direct extension crawls have no job yet;
+    // persist the first returned job ID so all following pages join that job.
+    const ingestion = await ingestPage(metrics, session)
+    if (!session.jobId && ingestion.jobId) session.jobId = ingestion.jobId
     return metrics
   } finally {
     if (tabId !== null) {
@@ -255,7 +328,7 @@ function scraperFunc(): PageMetrics {
 }
 
 // ── POST metrics to crawl-ingest Netlify Function ─────────────────────────────
-async function ingestPage(metrics: PageMetrics, session: CrawlSession) {
+async function ingestPage(metrics: PageMetrics, session: CrawlSession): Promise<{ jobId?: string }> {
   const payload = {
     projectId: session.projectId,
     auditJobId: session.jobId,
@@ -277,6 +350,8 @@ async function ingestPage(metrics: PageMetrics, session: CrawlSession) {
     const err = await res.json().catch(() => ({ error: 'Unknown error' }))
     throw new Error(`Ingest failed (${res.status}): ${err.error}`)
   }
+
+  return res.json().catch(() => ({}))
 }
 
 // ── Broadcast progress to popup ───────────────────────────────────────────────

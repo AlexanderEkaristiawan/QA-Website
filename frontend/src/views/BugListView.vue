@@ -4,6 +4,10 @@ import { useRoute } from 'vue-router'
 import { useBugStore, useCommentStore } from '@/composables/useFirestore'
 import { useAI } from '@/composables/useAI'
 import { useAuthStore } from '@/composables/useAuth'
+import { MAX_SCREENSHOTS_PER_BUG, uploadBugScreenshots } from '@/composables/useBugScreenshots'
+import BugForm from '@/components/bugs/BugForm.vue'
+import ImageUploader from '@/components/bugs/ImageUploader.vue'
+import ScreenshotLightbox from '@/components/bugs/ScreenshotLightbox.vue'
 import type { BugItem, Comment } from '@/types'
 import {
   getSeverityColor,
@@ -16,7 +20,7 @@ const route = useRoute()
 const bugStore = useBugStore()
 const commentStore = useCommentStore()
 const authStore = useAuthStore()
-const { generateRemediationGuide, generating } = useAI()
+const { generateRemediationGuide } = useAI()
 
 const bugs = ref<BugItem[]>([])
 const loading = ref(true)
@@ -26,6 +30,12 @@ const newComment = ref('')
 const remediationGuide = ref<string | null>(null)
 const generatingGuide = ref(false)
 const addingComment = ref(false)
+const showCreateForm = ref(false)
+const extraFiles = ref<File[]>([])
+const attaching = ref(false)
+const attachError = ref('')
+const attachStatus = ref('')
+const lightbox = ref<{ urls: string[]; index: number } | null>(null)
 const filterStatus = ref<BugItem['status'] | 'All'>('All')
 const filterSeverity = ref<BugItem['severity'] | 'All'>('All')
 const filterSource = ref<'All' | 'SEO' | 'SECURITY' | 'PERFORMANCE' | 'MANUAL'>('All')
@@ -49,10 +59,22 @@ const statusCounts = computed(() => {
   return counts
 })
 
+const selectedScreenshots = computed(() => selectedBug.value?.screenshotUrls ?? [])
+const remainingScreenshotSlots = computed(() =>
+  Math.max(0, MAX_SCREENSHOTS_PER_BUG - selectedScreenshots.value.length)
+)
+
 onMounted(() => {
   unsubscribeBugs = bugStore.subscribeBugs(
     projectId.value,
-    (data) => { bugs.value = data; loading.value = false },
+    (data) => {
+      bugs.value = data
+      loading.value = false
+      if (selectedBug.value) {
+        const latest = data.find(bug => bug.id === selectedBug.value?.id)
+        if (latest) selectedBug.value = latest
+      }
+    },
     () => { loading.value = false }
   )
 })
@@ -65,6 +87,9 @@ onUnmounted(() => {
 function openBug(bug: BugItem) {
   selectedBug.value = bug
   comments.value = []
+  extraFiles.value = []
+  attachError.value = ''
+  attachStatus.value = ''
   unsubscribeComments?.()
   unsubscribeComments = commentStore.subscribeComments(bug.id, (data) => {
     comments.value = data
@@ -76,6 +101,15 @@ function closeBug() {
   unsubscribeComments?.()
   unsubscribeComments = null
   comments.value = []
+  extraFiles.value = []
+  attachError.value = ''
+  attachStatus.value = ''
+}
+
+function onBugCreated(id: string) {
+  showCreateForm.value = false
+  const created = bugs.value.find(bug => bug.id === id)
+  if (created) openBug(created)
 }
 
 async function updateStatus(bug: BugItem, status: BugItem['status']) {
@@ -99,6 +133,31 @@ async function addComment() {
   }
 }
 
+async function attachScreenshots() {
+  if (!selectedBug.value || extraFiles.value.length === 0) return
+  const filesToUpload = extraFiles.value.slice(0, remainingScreenshotSlots.value)
+  if (!filesToUpload.length) return
+  attaching.value = true
+  attachError.value = ''
+  attachStatus.value = `Uploading ${filesToUpload.length} screenshot${filesToUpload.length === 1 ? '' : 's'}…`
+  try {
+    const uploaded = await uploadBugScreenshots(
+      projectId.value,
+      selectedBug.value.shortId,
+      filesToUpload
+    )
+    const screenshotUrls = [...(selectedBug.value.screenshotUrls ?? []), ...uploaded]
+    await bugStore.updateBug(selectedBug.value.id, { screenshotUrls })
+    selectedBug.value = { ...selectedBug.value, screenshotUrls }
+    extraFiles.value = []
+  } catch (err: unknown) {
+    attachError.value = err instanceof Error ? err.message : 'Failed to upload screenshots'
+  } finally {
+    attaching.value = false
+    attachStatus.value = ''
+  }
+}
+
 async function generateGuide() {
   generatingGuide.value = true
   const bugsForAI = bugs.value
@@ -117,6 +176,11 @@ function getSourceIcon(source: string) {
   const icons: Record<string, string> = { SEO: '🔍', SECURITY: '🛡️', PERFORMANCE: '⚡', MANUAL: '✏️' }
   return icons[source] || '📌'
 }
+
+function openLightbox(urls: string[], index: number) {
+  if (!urls.length) return
+  lightbox.value = { urls, index }
+}
 </script>
 
 <template>
@@ -131,20 +195,23 @@ function getSourceIcon(source: string) {
         </span>
       </p>
     </div>
-    <button @click="generateGuide" class="btn-primary" :disabled="generatingGuide || bugs.length === 0" id="gen-remediation-btn">
-      <span v-if="generatingGuide" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-      🤖 AI Remediation Guide
-    </button>
+    <div class="flex items-center gap-2">
+      <button class="btn-secondary" @click="showCreateForm = true">+ Report Bug</button>
+      <button @click="generateGuide" class="btn-primary" :disabled="generatingGuide || bugs.length === 0" id="gen-remediation-btn">
+        <span v-if="generatingGuide" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+        🤖 AI Remediation Guide
+      </button>
+    </div>
   </div>
 
   <!-- Filters -->
-  <div class="mb-5 flex flex-wrap gap-2">
+  <div class="mb-5 flex flex-wrap gap-3">
     <div class="flex items-center gap-1">
       <span class="text-xs text-gray-500 mr-1">Status:</span>
       <button
         v-for="s in ['All', ...BUG_STATUSES]"
         :key="s"
-        @click="filterStatus = s as any"
+        @click="filterStatus = s as typeof filterStatus"
         class="px-3 py-1 text-xs rounded-full border transition-all"
         :class="filterStatus === s
           ? 'bg-indigo-600 text-white border-indigo-600'
@@ -156,12 +223,24 @@ function getSourceIcon(source: string) {
       <button
         v-for="sev in ['All', ...BUG_SEVERITIES]"
         :key="sev"
-        @click="filterSeverity = sev as any"
+        @click="filterSeverity = sev as typeof filterSeverity"
         class="px-3 py-1 text-xs rounded-full border transition-all"
         :class="filterSeverity === sev
           ? 'bg-indigo-600 text-white border-indigo-600'
           : 'border-gray-200 text-gray-600 hover:border-gray-400'"
       >{{ sev }}</button>
+    </div>
+    <div class="flex items-center gap-1">
+      <span class="text-xs text-gray-500 mr-1">Source:</span>
+      <button
+        v-for="src in SOURCES"
+        :key="src"
+        @click="filterSource = src"
+        class="px-3 py-1 text-xs rounded-full border transition-all"
+        :class="filterSource === src
+          ? 'bg-indigo-600 text-white border-indigo-600'
+          : 'border-gray-200 text-gray-600 hover:border-gray-400'"
+      >{{ src }}</button>
     </div>
   </div>
 
@@ -173,8 +252,9 @@ function getSourceIcon(source: string) {
       </div>
 
       <div v-else-if="filteredBugs.length === 0" class="card p-12 text-center">
-        <p class="text-4xl mb-3">🎉</p>
-        <p class="text-gray-500">No bugs match your filters</p>
+        <p class="text-4xl mb-3">{{ bugs.length === 0 ? '🐛' : '🎉' }}</p>
+        <p class="text-gray-500">{{ bugs.length === 0 ? 'No bugs yet. Report one manually or run an audit.' : 'No bugs match your filters' }}</p>
+        <button v-if="bugs.length === 0" class="btn-primary mt-4" @click="showCreateForm = true">Report a bug</button>
       </div>
 
       <div v-else class="card overflow-hidden">
@@ -207,10 +287,21 @@ function getSourceIcon(source: string) {
                   :key="tag"
                   class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
                 >{{ tag }}</span>
+                <div v-if="bug.screenshotUrls?.length" class="flex items-center gap-1">
+                  <img
+                    v-for="(url, i) in bug.screenshotUrls.slice(0, 3)"
+                    :key="url"
+                    :src="url"
+                    alt=""
+                    class="h-5 w-5 rounded object-cover border border-gray-200"
+                    @click.stop="openLightbox(bug.screenshotUrls ?? [], i)"
+                  />
+                  <span v-if="bug.screenshotUrls.length > 3" class="text-xs text-gray-400">+{{ bug.screenshotUrls.length - 3 }}</span>
+                </div>
                 <!-- Assignee Avatars -->
                 <div v-if="bug.assignees?.length" class="flex -space-x-1.5 ml-1">
                   <div
-                    v-for="(uid, i) in bug.assignees.slice(0, 3)"
+                    v-for="uid in bug.assignees.slice(0, 3)"
                     :key="uid"
                     class="h-5 w-5 rounded-full bg-indigo-500 border-2 border-white flex items-center justify-center text-xs text-white font-bold"
                     :title="uid"
@@ -269,6 +360,13 @@ function getSourceIcon(source: string) {
       </div>
     </div>
   </div>
+
+  <BugForm
+    v-if="showCreateForm"
+    :project-id="projectId"
+    @close="showCreateForm = false"
+    @created="onBugCreated"
+  />
 
   <!-- Bug Detail Modal -->
   <div
@@ -338,7 +436,39 @@ function getSourceIcon(source: string) {
         <!-- Steps to Reproduce -->
         <div v-if="selectedBug.stepsToReproduce" class="rounded-xl bg-gray-50 p-4">
           <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Steps to Reproduce</p>
-          <p class="text-sm text-gray-700">{{ selectedBug.stepsToReproduce }}</p>
+          <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ selectedBug.stepsToReproduce }}</p>
+        </div>
+
+        <!-- Screenshots -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Screenshots</p>
+          <div v-if="selectedScreenshots.length" class="grid grid-cols-3 gap-2 mb-3">
+            <button
+              v-for="(url, index) in selectedScreenshots"
+              :key="url"
+              type="button"
+              class="aspect-square overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
+              @click="openLightbox(selectedScreenshots, index)"
+            >
+              <img :src="url" :alt="`Screenshot ${index + 1}`" class="h-full w-full object-cover" />
+            </button>
+          </div>
+          <p v-else class="text-xs text-gray-400 mb-3">No screenshots attached</p>
+          <ImageUploader
+            v-if="remainingScreenshotSlots > 0"
+            v-model:files="extraFiles"
+            :disabled="attaching"
+            :max-files="remainingScreenshotSlots"
+          />
+          <p v-else class="text-xs text-gray-500">Maximum of {{ MAX_SCREENSHOTS_PER_BUG }} screenshots reached.</p>
+          <div v-if="extraFiles.length" class="mt-2 flex items-center gap-2">
+            <button type="button" class="btn-primary text-sm" :disabled="attaching" @click="attachScreenshots">
+              <span v-if="attaching" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+              <span v-else>Upload to this bug</span>
+            </button>
+          </div>
+          <p v-if="attachError" class="mt-2 text-xs text-red-600">{{ attachError }}</p>
+          <p v-else-if="attachStatus" class="mt-2 text-xs text-indigo-600">{{ attachStatus }}</p>
         </div>
 
         <!-- Metadata -->
@@ -389,11 +519,19 @@ function getSourceIcon(source: string) {
               :disabled="addingComment || !newComment.trim()"
             >
               <span v-if="addingComment" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-              <span v-else">Send</span>
+              <span v-else>Send</span>
             </button>
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  <ScreenshotLightbox
+    v-if="lightbox"
+    :urls="lightbox.urls"
+    :index="lightbox.index"
+    @close="lightbox = null"
+    @update:index="lightbox = lightbox ? { ...lightbox, index: $event } : null"
+  />
 </template>

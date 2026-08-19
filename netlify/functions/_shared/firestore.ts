@@ -1,7 +1,12 @@
 import * as admin from 'firebase-admin'
+import { config as loadEnv } from 'dotenv'
+import { resolve } from 'path'
 import { jsonResponse, corsHeaders } from './response'
 
 export { jsonResponse, corsHeaders }
+
+// Netlify injects production variables; this also supports the repository's local netlify/.env file.
+loadEnv({ path: resolve(process.cwd(), 'netlify/.env') })
 
 // Initialize Firebase Admin once (lazy singleton)
 function initAdmin(): admin.app.App {

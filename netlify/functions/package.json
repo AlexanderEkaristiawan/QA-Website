@@ -10,12 +10,13 @@
     "node": "18"
   },
   "dependencies": {
-    "firebase-admin": "^12.7.0",
-    "axios": "^1.7.9"
+    "axios": "^1.7.9",
+    "dotenv": "^17.4.2",
+    "firebase-admin": "^12.7.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "@netlify/functions": "^2.8.2",
     "@types/node": "^22.10.5",
-    "@netlify/functions": "^2.8.2"
+    "typescript": "^5.7.2"
   }
 }

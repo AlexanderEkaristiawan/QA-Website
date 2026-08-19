@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:stack": "cd .. && netlify dev --port 8888",
+    "dev:functions": "netlify functions:serve --port 8888",
     "build": "npx vite build",
     "preview": "vite preview"
   },

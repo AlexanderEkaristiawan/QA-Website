@@ -2,8 +2,8 @@
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/useAuth'
 
-defineProps<{ collapsed: boolean }>()
-const emit = defineEmits<{ toggle: [] }>()
+defineProps<{ collapsed: boolean; mobileOpen: boolean }>()
+const emit = defineEmits<{ toggle: []; closeMobile: [] }>()
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -18,8 +18,11 @@ const isActive = (path: string) => route.path.startsWith(path)
 
 <template>
   <aside
-    class="flex flex-col border-r border-gray-200 bg-white transition-all duration-300"
-    :class="collapsed ? 'w-16' : 'w-64'"
+    class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-gray-200 bg-white transition-transform duration-300 lg:static lg:z-auto lg:translate-x-0 lg:transition-[width]"
+    :class="[
+      collapsed ? 'lg:w-16' : 'lg:w-64',
+      mobileOpen ? 'translate-x-0' : '-translate-x-full',
+    ]"
   >
     <div class="flex h-16 items-center justify-between border-b border-gray-200 px-4">
       <div v-if="!collapsed" class="flex items-center gap-2">
@@ -42,6 +45,7 @@ const isActive = (path: string) => route.path.startsWith(path)
         :to="item.path"
         class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors"
         :class="isActive(item.path) ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'"
+        @click="emit('closeMobile')"
       >
         <span class="text-lg">{{ item.icon }}</span>
         <span v-if="!collapsed">{{ item.name }}</span>
@@ -60,5 +64,12 @@ const isActive = (path: string) => route.path.startsWith(path)
       </div>
     </div>
   </aside>
+  <button
+    v-if="mobileOpen"
+    type="button"
+    aria-label="Close navigation"
+    class="fixed inset-0 z-30 bg-gray-900/40 lg:hidden"
+    @click="emit('closeMobile')"
+  />
 </template>
 "

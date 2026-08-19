@@ -15,6 +15,17 @@ const project = ref<Project | null>(null)
 const testCases = ref<TestCase[]>([])
 const loading = ref(true)
 const selectedTestCase = ref<TestCase | null>(null)
+const showCreateForm = ref(false)
+const creating = ref(false)
+const createError = ref('')
+const newTestCase = ref({
+  title: '',
+  preconditions: '',
+  steps: '',
+  expectedResult: '',
+  testData: '',
+  tags: '',
+})
 const showSandboxWarning = ref(false)
 const pendingDownload = ref<{ script: string; title: string } | null>(null)
 const generatingFor = ref<string | null>(null)
@@ -41,6 +52,55 @@ function openTestCase(tc: TestCase) {
 
 function closeTestCase() {
   selectedTestCase.value = null
+}
+
+function resetCreateForm() {
+  newTestCase.value = {
+    title: '',
+    preconditions: '',
+    steps: '',
+    expectedResult: '',
+    testData: '',
+    tags: '',
+  }
+  createError.value = ''
+}
+
+async function createManualTestCase() {
+  const projectId = route.params.id as string
+  const steps = newTestCase.value.steps
+    .split('\n')
+    .map(step => step.trim())
+    .filter(Boolean)
+
+  if (!newTestCase.value.title.trim() || !newTestCase.value.expectedResult.trim() || steps.length === 0) {
+    createError.value = 'Title, at least one step, and expected result are required.'
+    return
+  }
+
+  creating.value = true
+  createError.value = ''
+  try {
+    await testCaseStore.createTestCase({
+      projectId,
+      title: newTestCase.value.title.trim(),
+      preconditions: newTestCase.value.preconditions.trim(),
+      steps,
+      expectedResult: newTestCase.value.expectedResult.trim(),
+      testData: newTestCase.value.testData.trim() || undefined,
+      tags: newTestCase.value.tags
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(Boolean),
+      createdBy: project.value?.ownerId,
+    })
+    showCreateForm.value = false
+    resetCreateForm()
+  } catch (err: any) {
+    createError.value = err.message || 'Failed to create test case.'
+  } finally {
+    creating.value = false
+  }
 }
 
 async function updateStatus(tc: TestCase, status: TestCase['status']) {
@@ -111,21 +171,23 @@ function getStatusClass(status: string): string {
 
 <template>
   <!-- Header -->
-  <div class="mb-8 flex items-center justify-between flex-wrap gap-4">
+  <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">✅ Test Cases</h1>
       <p class="mt-1 text-sm text-gray-500">{{ testCases.length }} test case(s) — AI-generated Playwright scripts</p>
     </div>
+    <button @click="showCreateForm = true" class="btn-primary w-full sm:w-auto">+ Add Test Case</button>
   </div>
 
   <div v-if="loading" class="flex items-center justify-center py-16">
     <div class="h-8 w-8 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
   </div>
 
-  <div v-else-if="testCases.length === 0" class="card p-16 text-center">
+  <div v-else-if="testCases.length === 0" class="card p-6 text-center sm:p-16">
     <p class="text-5xl mb-4">🧪</p>
     <h3 class="text-lg font-semibold text-gray-900">No test cases yet</h3>
     <p class="mt-1 text-sm text-gray-500">Add test cases manually or import from audit results</p>
+    <button @click="showCreateForm = true" class="btn-primary mt-5">+ Add Test Case</button>
   </div>
 
   <div v-else class="space-y-3">
@@ -158,6 +220,68 @@ function getStatusClass(status: string): string {
           <p class="text-xs text-gray-400">{{ tc.steps.length }} steps</p>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Manual Test Case Modal -->
+  <div
+    v-if="showCreateForm"
+    class="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    @click.self="showCreateForm = false"
+  >
+    <div class="card my-4 w-full max-w-2xl">
+      <div class="card-header flex items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-semibold text-gray-900">Add Test Case</h2>
+          <p class="mt-1 text-sm text-gray-500">Create a test case for this project.</p>
+        </div>
+        <button type="button" @click="showCreateForm = false" class="text-xl text-gray-400 hover:text-gray-600" aria-label="Close">✕</button>
+      </div>
+
+      <form @submit.prevent="createManualTestCase" class="card-body space-y-4">
+        <div>
+          <label class="label" for="test-case-title">Title</label>
+          <input id="test-case-title" v-model="newTestCase.title" class="input" placeholder="e.g. User can reset their password" required />
+        </div>
+
+        <div>
+          <label class="label" for="test-case-preconditions">Preconditions</label>
+          <textarea id="test-case-preconditions" v-model="newTestCase.preconditions" class="input min-h-20 resize-y" placeholder="e.g. User has an existing account"></textarea>
+        </div>
+
+        <div>
+          <label class="label" for="test-case-steps">Steps</label>
+          <textarea id="test-case-steps" v-model="newTestCase.steps" class="input min-h-32 resize-y" placeholder="Enter one step per line\nOpen the login page\nEnter valid credentials\nClick Sign in" required></textarea>
+          <p class="mt-1 text-xs text-gray-500">Enter one step per line.</p>
+        </div>
+
+        <div>
+          <label class="label" for="test-case-expected">Expected result</label>
+          <textarea id="test-case-expected" v-model="newTestCase.expectedResult" class="input min-h-20 resize-y" placeholder="e.g. The user is redirected to the dashboard" required></textarea>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label class="label" for="test-case-data">Test data <span class="font-normal text-gray-400">(optional)</span></label>
+            <textarea id="test-case-data" v-model="newTestCase.testData" class="input min-h-20 resize-y" placeholder="username: tester@example.com"></textarea>
+          </div>
+          <div>
+            <label class="label" for="test-case-tags">Tags <span class="font-normal text-gray-400">(optional)</span></label>
+            <input id="test-case-tags" v-model="newTestCase.tags" class="input" placeholder="smoke, login" />
+            <p class="mt-1 text-xs text-gray-500">Separate tags with commas.</p>
+          </div>
+        </div>
+
+        <div v-if="createError" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{{ createError }}</div>
+
+        <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+          <button type="button" @click="showCreateForm = false" class="btn-secondary">Cancel</button>
+          <button type="submit" class="btn-primary" :disabled="creating">
+            <span v-if="creating" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+            {{ creating ? 'Adding...' : 'Add Test Case' }}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 

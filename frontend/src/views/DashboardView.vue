@@ -116,14 +116,14 @@ function displayPerf(val: number | null): string {
 
 <template>
   <div>
-    <div class="mb-8">
+    <div class="mb-6 sm:mb-8">
       <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
       <p class="mt-1 text-gray-500">Overview of your QA projects and recent audits</p>
     </div>
 
-    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
       <!-- Total Projects -->
-      <div class="card p-6">
+      <div class="card p-4 sm:p-6">
         <div class="flex items-center gap-4">
           <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 text-blue-600">📁</div>
           <div>
@@ -134,7 +134,7 @@ function displayPerf(val: number | null): string {
       </div>
 
       <!-- Recent Audits (last 7 days) -->
-      <div class="card p-6">
+      <div class="card p-4 sm:p-6">
         <div class="flex items-center gap-4">
           <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 text-green-600">✅</div>
           <div>
@@ -145,7 +145,7 @@ function displayPerf(val: number | null): string {
       </div>
 
       <!-- Open Bugs -->
-      <div class="card p-6">
+      <div class="card p-4 sm:p-6">
         <div class="flex items-center gap-4">
           <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-yellow-100 text-yellow-600">🐛</div>
           <div>
@@ -156,7 +156,7 @@ function displayPerf(val: number | null): string {
       </div>
 
       <!-- Avg Performance Score -->
-      <div class="card p-6">
+      <div class="card p-4 sm:p-6">
         <div class="flex items-center gap-4">
           <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100 text-purple-600">📊</div>
           <div>
@@ -176,7 +176,7 @@ function displayPerf(val: number | null): string {
       </div>
     </div>
 
-    <div class="mt-8">
+    <div class="mt-6 sm:mt-8">
       <div class="mb-4 flex items-center justify-between">
         <h2 class="text-lg font-semibold text-gray-900">Recent Projects</h2>
         <router-link to="/projects" class="btn-primary text-sm">View All</router-link>
@@ -186,7 +186,7 @@ function displayPerf(val: number | null): string {
         <span class="animate-spin text-2xl">⟳</span>
       </div>
 
-      <div v-else-if="projects.length === 0" class="card p-12 text-center">
+      <div v-else-if="projects.length === 0" class="card p-6 text-center sm:p-12">
         <p class="text-4xl mb-4">🚀</p>
         <h3 class="text-lg font-semibold text-gray-900">No projects yet</h3>
         <p class="mt-1 text-sm text-gray-500">Create your first project to start auditing</p>
@@ -198,7 +198,7 @@ function displayPerf(val: number | null): string {
           v-for="project in projects.slice(0, 6)"
           :key="project.id"
           :to="`/projects/${project.id}`"
-          class="card p-6 hover:shadow-md transition-shadow"
+          class="card min-w-0 p-4 transition-shadow hover:shadow-md sm:p-6"
         >
           <h3 class="font-semibold text-gray-900 truncate">{{ project.name }}</h3>
           <p class="mt-1 text-sm text-gray-500 truncate">{{ project.targetUrl }}</p>

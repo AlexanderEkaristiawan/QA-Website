@@ -27,8 +27,10 @@ cd ../functions && npm install
 cp frontend/.env.example frontend/.env
 # Edit .env with your Firebase & API credentials
 
-# Run development server
-cd frontend && npm run dev
+# Run development server with Netlify functions
+cd frontend && npm run dev:stack
+
+# Open http://localhost:5175 in the browser. Netlify Functions run through the Vite proxy on port 8888.
 ```
 
 ## Project Structure

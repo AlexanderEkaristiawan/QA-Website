@@ -5,7 +5,8 @@ import { useAuthStore } from '@/composables/useAuth'
 import { useNotificationStore } from '@/composables/useFirestore'
 import type { Notification } from '@/types'
 
-defineProps<{ collapsed: boolean }>()
+defineProps<{ collapsed: boolean; user?: unknown }>()
+const emit = defineEmits<{ 'toggle-sidebar': [] }>()
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -43,11 +44,19 @@ const toggleDropdown = () => {
 </script>
 
 <template>
-  <header class="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
+  <header class="flex min-h-16 items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 sm:px-6">
     <div class="flex items-center gap-4">
-      <h2 class="text-xl font-semibold text-gray-800">{{ $route.name }}</h2>
+      <button
+        type="button"
+        aria-label="Toggle navigation"
+        class="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 lg:hidden"
+        @click="emit('toggle-sidebar')"
+      >
+        <span class="text-xl">☰</span>
+      </button>
+      <h2 class="min-w-0 truncate text-xl font-semibold text-gray-800">{{ $route.name }}</h2>
     </div>
-    <div class="flex items-center gap-4">
+    <div class="flex items-center gap-2 sm:gap-4">
       <!-- Notification Bell -->
       <router-link to="/notifications" class="relative rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors">
         <span class="text-xl">🔔</span>
@@ -67,8 +76,8 @@ const toggleDropdown = () => {
           <div class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-primary-700 text-sm font-semibold">
             {{ authStore.currentUser?.displayName?.charAt(0)?.toUpperCase() || 'U' }}
           </div>
-          <span class="text-sm font-medium text-gray-700">{{ authStore.currentUser?.displayName || 'User' }}</span>
-          <span class="text-xs text-gray-400">▼</span>
+          <span class="hidden text-sm font-medium text-gray-700 sm:inline">{{ authStore.currentUser?.displayName || 'User' }}</span>
+          <span class="hidden text-xs text-gray-400 sm:inline">▼</span>
         </button>
 
         <div

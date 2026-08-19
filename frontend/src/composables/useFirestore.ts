@@ -35,6 +35,10 @@ function docRef(path: string) {
   return doc(db, path)
 }
 
+function toBugItem(id: string, data: DocumentData): BugItem {
+  return { id, ...data, screenshotUrls: data.screenshotUrls ?? [] } as BugItem
+}
+
 // === Projects ===
 export function useProjectStore() {
   async function getProjects(userId: string): Promise<Project[]> {
@@ -198,13 +202,13 @@ export function useBugStore() {
     )
     return onSnapshot(
       q,
-      snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() } as BugItem))),
+      snap => callback(snap.docs.map(d => toBugItem(d.id, d.data()))),
       err => {
         console.error('Bug list snapshot error:', err)
         if (err.code === 'failed-precondition' || err.message?.includes('index')) {
           const fallback = query(colRef('bug_list'), where('projectId', '==', projectId))
           onSnapshot(fallback, snap => {
-            callback(snap.docs.map(d => ({ id: d.id, ...d.data() } as BugItem)))
+            callback(snap.docs.map(d => toBugItem(d.id, d.data())))
           })
         }
         onError?.(err)
@@ -220,32 +224,37 @@ export function useBugStore() {
         orderBy('createdAt', 'desc')
       )
       const snap = await getDocs(q)
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as BugItem))
+      return snap.docs.map(d => toBugItem(d.id, d.data()))
     } catch {
       const q = query(colRef('bug_list'), where('projectId', '==', projectId))
       const snap = await getDocs(q)
-      return snap.docs.map(d => ({ id: d.id, ...d.data() } as BugItem))
+      return snap.docs.map(d => toBugItem(d.id, d.data()))
     }
   }
 
   async function getBug(id: string): Promise<BugItem | null> {
     const snap = await getDoc(docRef(`bug_list/${id}`))
     if (!snap.exists()) return null
-    return { id: snap.id, ...snap.data() } as BugItem
+    return toBugItem(snap.id, snap.data())
   }
 
   /**
    * Creates a bug with an atomic short ID (e.g. QAS-12) via Firestore transaction.
    * bugCounter on the project doc is incremented atomically.
+   * Returns both the Firestore doc id and the generated shortId so callers can
+   * upload screenshots to projects/{projectId}/bugs/{shortId}/...
    */
-  async function createBug(bug: Partial<BugItem> & { projectId: string }): Promise<string> {
+  async function createBug(
+    bug: Partial<BugItem> & { projectId: string }
+  ): Promise<{ id: string; shortId: string }> {
     const projectRef = docRef(`projects/${bug.projectId}`)
     let bugId = ''
+    let shortId = ''
 
     await runTransaction(db, async (tx) => {
       const projSnap = await tx.get(projectRef)
       const counter = (projSnap.data()?.bugCounter || 0) + 1
-      const shortId = `QAS-${counter}`
+      shortId = `QAS-${counter}`
       tx.update(projectRef, { bugCounter: counter })
 
       const newBugRef = doc(colRef('bug_list'))
@@ -257,6 +266,7 @@ export function useBugStore() {
         assignees: [],
         commentCount: 0,
         remediationGuide: null,
+        screenshotUrls: [],
         ...bug,
         shortId,
         createdAt: Timestamp.now(),
@@ -264,7 +274,7 @@ export function useBugStore() {
       })
     })
 
-    return bugId
+    return { id: bugId, shortId }
   }
 
   async function updateBug(id: string, data: Partial<BugItem>): Promise<void> {

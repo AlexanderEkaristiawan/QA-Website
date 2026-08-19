@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "description": "QA-Suite Chrome Extension — Manifest V3, Vue 3 + TypeScript",
+  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "typecheck": "vue-tsc --noEmit"
+    "dev": "npx vite",
+    "build": "npx vite build && node scripts/post-build.js",
+    "typecheck": "npx vue-tsc --noEmit"
   },
   "dependencies": {
     "vue": "^3.5.13"

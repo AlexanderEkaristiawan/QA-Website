@@ -242,6 +242,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         description: `Automated SEO crawl found ${totalIssues} issues across ${crawledPages.length} pages. Review the detailed pages report for specifics.`,
         remediationGuide: null,
         commentCount: 0,
+        screenshotUrls: [],
         createdAt: fv.serverTimestamp(),
         lastEditedTime: fv.serverTimestamp(),
       })

@@ -216,6 +216,7 @@ export interface BugItem {
   createdBy?: string
   stepsToReproduce?: string
   screenCapture?: string
+  screenshotUrls?: string[]
 }
 
 // === Comment (sub-collection of bug_list/{bugId}/comments) ===
