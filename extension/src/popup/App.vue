@@ -4,6 +4,7 @@ import type { ExtensionConfig } from '@/types'
 import ConnectBar from './components/ConnectBar.vue'
 import InstantAudit from './components/InstantAudit.vue'
 import CrawlMode from './components/CrawlMode.vue'
+import logoIcon from '../../assets/icon48.png'
 
 const activeMode = ref<'instant' | 'crawl'>('instant')
 const config = ref<ExtensionConfig>({
@@ -29,7 +30,7 @@ onMounted(async () => {
     <header class="app-header">
       <div class="brand-row">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">QA</div>
+          <img class="brand-mark" :src="logoIcon" alt="" aria-hidden="true" />
           <div class="brand-copy">
             <h1 class="brand-name">QA-Suite</h1>
             <p class="brand-subtitle">Website inspection companion</p>

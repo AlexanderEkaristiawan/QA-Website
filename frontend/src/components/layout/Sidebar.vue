@@ -1,6 +1,7 @@
 "<script setup lang="ts">
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/composables/useAuth'
+import qaLogo from '@/assets/qa-logo.png'
 
 defineProps<{ collapsed: boolean; mobileOpen: boolean }>()
 const emit = defineEmits<{ toggle: []; closeMobile: [] }>()
@@ -24,15 +25,24 @@ const isActive = (path: string) => route.path.startsWith(path)
       mobileOpen ? 'translate-x-0' : '-translate-x-full',
     ]"
   >
-    <div class="flex h-16 items-center justify-between border-b border-gray-200 px-4">
+    <div
+      class="relative flex h-16 items-center border-b border-gray-200"
+      :class="collapsed ? 'justify-center px-2' : 'justify-between px-4'"
+    >
       <div v-if="!collapsed" class="flex items-center gap-2">
-        <span class="text-xl font-bold text-primary-600">QA</span>
+        <img :src="qaLogo" alt="QA-Suite logo" class="h-10 w-10 rounded-sm object-cover" />
         <span class="text-sm font-medium text-gray-500">Suite</span>
       </div>
-      <div v-else class="mx-auto">
-        <span class="text-xl font-bold text-primary-600">Q</span>
+      <div v-else>
+        <img :src="qaLogo" alt="QA-Suite logo" class="h-8 w-8 rounded-sm object-cover" />
       </div>
-      <button @click="emit('toggle')" class="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700">
+      <button
+        @click="emit('toggle')"
+        class="text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+        :class="collapsed
+          ? 'absolute -right-3 top-1/2 z-10 h-8 w-8 -translate-y-1/2 rounded-full border border-gray-200 bg-white shadow-sm'
+          : 'rounded-lg p-1.5'"
+      >
         <span v-if="collapsed">→</span>
         <span v-else>←</span>
       </button>
