@@ -55,6 +55,11 @@ export function getDb(): admin.firestore.Firestore {
   return admin.firestore()
 }
 
+export function getAuth(): admin.auth.Auth {
+  initAdmin()
+  return admin.auth()
+}
+
 export function getFieldValue() {
   return admin.firestore.FieldValue
 }

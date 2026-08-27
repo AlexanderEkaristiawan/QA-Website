@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.corsHeaders = exports.jsonResponse = void 0;
 exports.getDb = getDb;
+exports.getAuth = getAuth;
 exports.getFieldValue = getFieldValue;
 exports.getTimestamp = getTimestamp;
 const admin = __importStar(require("firebase-admin"));
@@ -87,6 +88,10 @@ function initAdmin() {
 function getDb() {
     initAdmin();
     return admin.firestore();
+}
+function getAuth() {
+    initAdmin();
+    return admin.auth();
 }
 function getFieldValue() {
     return admin.firestore.FieldValue;

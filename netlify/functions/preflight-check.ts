@@ -1,26 +1,40 @@
-import type { Handler, HandlerEvent } from '@netlify/functions'
-import { getDb, getFieldValue, jsonResponse } from './_shared/firestore'
-import axios from 'axios'
+import type { Handler, HandlerEvent } from "@netlify/functions";
+import {
+  getAuth,
+  getDb,
+  getFieldValue,
+  jsonResponse,
+} from "./_shared/firestore";
+import {
+  isEmailNotificationEnabled,
+  sendEmailNotification,
+} from "./_shared/mailer";
+import axios from "axios";
 
 interface AuthSettings {
-  authType: 'none' | 'basic' | 'session'
-  basicAuthUsername?: string
-  basicAuthPassword?: string
-  sessionCookie?: string
+  authType: "none" | "basic" | "session";
+  basicAuthUsername?: string;
+  basicAuthPassword?: string;
+  sessionCookie?: string;
 }
 
-async function validateAuth(targetUrl: string, authSettings: AuthSettings): Promise<{ ok: boolean; statusCode: number; message: string }> {
+async function validateAuth(
+  targetUrl: string,
+  authSettings: AuthSettings,
+): Promise<{ ok: boolean; statusCode: number; message: string }> {
   const headers: Record<string, string> = {
-    'User-Agent': 'QASuite-Preflight/1.0',
+    "User-Agent": "QASuite-Preflight/1.0",
+  };
+
+  if (authSettings.authType === "basic" && authSettings.basicAuthUsername) {
+    const token = Buffer.from(
+      `${authSettings.basicAuthUsername}:${authSettings.basicAuthPassword || ""}`,
+    ).toString("base64");
+    headers["Authorization"] = `Basic ${token}`;
   }
 
-  if (authSettings.authType === 'basic' && authSettings.basicAuthUsername) {
-    const token = Buffer.from(`${authSettings.basicAuthUsername}:${authSettings.basicAuthPassword || ''}`).toString('base64')
-    headers['Authorization'] = `Basic ${token}`
-  }
-
-  if (authSettings.authType === 'session' && authSettings.sessionCookie) {
-    headers['Cookie'] = authSettings.sessionCookie
+  if (authSettings.authType === "session" && authSettings.sessionCookie) {
+    headers["Cookie"] = authSettings.sessionCookie;
   }
 
   try {
@@ -29,14 +43,14 @@ async function validateAuth(targetUrl: string, authSettings: AuthSettings): Prom
       timeout: 8000,
       maxRedirects: 3,
       validateStatus: () => true,
-    })
+    });
 
     if (response.status === 401 || response.status === 403) {
       return {
         ok: false,
         statusCode: response.status,
         message: `Authentication failed — server returned ${response.status}. Check your credentials.`,
-      }
+      };
     }
 
     if (response.status >= 400) {
@@ -44,58 +58,122 @@ async function validateAuth(targetUrl: string, authSettings: AuthSettings): Prom
         ok: false,
         statusCode: response.status,
         message: `Target URL returned HTTP ${response.status}. Check the URL is correct.`,
-      }
+      };
     }
 
-    return { ok: true, statusCode: response.status, message: 'Auth validated successfully' }
+    return {
+      ok: true,
+      statusCode: response.status,
+      message: "Auth validated successfully",
+    };
   } catch (err: any) {
-    return { ok: false, statusCode: 0, message: `Could not reach target URL: ${err.message}` }
+    return {
+      ok: false,
+      statusCode: 0,
+      message: `Could not reach target URL: ${err.message}`,
+    };
   }
 }
 
 export const handler: Handler = async (event: HandlerEvent) => {
-  const origin = event.headers.origin
+  const origin = event.headers.origin;
 
-  if (event.httpMethod === 'OPTIONS') return jsonResponse(204, {}, origin)
-  if (event.httpMethod !== 'POST') return jsonResponse(405, { error: 'Method not allowed' }, origin)
+  if (event.httpMethod === "OPTIONS") return jsonResponse(204, {}, origin);
+  if (event.httpMethod !== "POST")
+    return jsonResponse(405, { error: "Method not allowed" }, origin);
 
-  const db = getDb()
-  const fv = getFieldValue()
-  const body = JSON.parse(event.body || '{}')
-  const { jobId, projectId, targetUrl, authSettings = { authType: 'none' } } = body
+  const db = getDb();
+  const fv = getFieldValue();
+  const body = JSON.parse(event.body || "{}");
+  const {
+    jobId,
+    projectId,
+    targetUrl,
+    authSettings = { authType: "none" },
+  } = body;
 
   if (!jobId || !projectId || !targetUrl) {
-    return jsonResponse(400, { error: 'jobId, projectId, and targetUrl required' }, origin)
+    return jsonResponse(
+      400,
+      { error: "jobId, projectId, and targetUrl required" },
+      origin,
+    );
   }
 
-  const jobRef = db.collection('audit_jobs').doc(jobId)
-  const result = await validateAuth(targetUrl, authSettings as AuthSettings)
+  const jobRef = db.collection("audit_jobs").doc(jobId);
+  const result = await validateAuth(targetUrl, authSettings as AuthSettings);
 
   if (!result.ok) {
     await jobRef.update({
-      status: 'auth-failed',
-      errors: fv.arrayUnion({ bot: 'preflight', message: result.message, retriesLeft: 0 }),
-    })
+      status: "auth-failed",
+      errors: fv.arrayUnion({
+        bot: "preflight",
+        message: result.message,
+        retriesLeft: 0,
+      }),
+    });
 
     // Create a notification for the project owner
-    await db.collection('projects').doc(projectId).get().then(async (snap) => {
-      if (snap.exists) {
-        const ownerId = snap.data()?.ownerId
-        if (ownerId) {
-          await db.collection('notifications').add({
-            userId: ownerId,
-            title: 'Audit Auth Failed',
-            message: result.message,
-            read: false,
-            link: `/projects/${projectId}`,
-            createdAt: fv.serverTimestamp(),
-          })
+    const projectSnap = await db
+      .collection("projects")
+      .doc(projectId)
+      .get()
+      .catch(() => null);
+    if (projectSnap?.exists) {
+      const ownerId = projectSnap.data()?.ownerId as string | undefined;
+      const projectName =
+        (projectSnap.data()?.name as string | undefined) || projectId;
+      if (ownerId) {
+        await db.collection("notifications").add({
+          userId: ownerId,
+          title: "Audit Auth Failed",
+          message: result.message,
+          read: false,
+          link: `/projects/${projectId}`,
+          createdAt: fv.serverTimestamp(),
+        });
+
+        if (isEmailNotificationEnabled()) {
+          try {
+            const owner = await getAuth().getUser(ownerId);
+            if (owner.email) {
+              const subject = `[QA-Suite] Audit authentication failed: ${projectName}`;
+              const text = [
+                "QA-Suite detected an authentication failure before crawling started.",
+                "",
+                `Project: ${projectName}`,
+                `Project ID: ${projectId}`,
+                `Reason: ${result.message}`,
+                "",
+                "Open the project and update authentication settings, then retry the audit.",
+              ].join("\n");
+
+              await sendEmailNotification({
+                to: owner.email,
+                subject,
+                text,
+              });
+            }
+          } catch (emailErr: any) {
+            console.warn(
+              "[preflight-check] Failed to send auth-failed email:",
+              emailErr?.message || emailErr,
+            );
+          }
         }
       }
-    }).catch(() => {})
+    }
 
-    return jsonResponse(200, { ok: false, statusCode: result.statusCode, message: result.message }, origin)
+    return jsonResponse(
+      200,
+      { ok: false, statusCode: result.statusCode, message: result.message },
+      origin,
+    );
   }
 
-  return jsonResponse(200, { ok: true, statusCode: result.statusCode, message: result.message }, origin)
-}
+  return jsonResponse(
+    200,
+    { ok: true, statusCode: result.statusCode, message: result.message },
+    origin,
+  );
+};

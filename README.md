@@ -46,9 +46,17 @@ CLOUDINARY_API_KEY=your_cloudinary_key
 CLOUDINARY_API_SECRET=your_cloudinary_secret
 GEMINI_API_KEY=your_gemini_key
 OPENAI_API_KEY=optional_fallback_key
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your_gmail_address@gmail.com
+SMTP_PASS=your_gmail_app_password
+SMTP_FROM=QA-Suite <your_gmail_address@gmail.com>
 ```
 
 `PAGESPEED_API_KEY` must be a Google API key, not a service-account JSON document or service-account key ID. Enable the PageSpeed Insights API for the same Google Cloud project.
+
+For Gmail SMTP, use an App Password (not your normal Gmail password). If you are using port `465`, keep `SMTP_SECURE=true`.
 
 ### Start every local session
 
