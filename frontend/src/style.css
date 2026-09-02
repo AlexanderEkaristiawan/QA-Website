@@ -8,7 +8,11 @@
   }
   body {
     @apply bg-gray-50 text-gray-900;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
   }
 }
 
@@ -78,4 +82,3 @@
     scrollbar-color: #cbd5e1 transparent;
   }
 }
-
