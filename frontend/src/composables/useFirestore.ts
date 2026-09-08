@@ -15,6 +15,7 @@ import {
   type DocumentData,
   Timestamp,
   increment,
+  writeBatch,
 } from 'firebase/firestore'
 import { db } from '@/firebase/config'
 import type {
@@ -370,7 +371,31 @@ export function useTestCaseStore() {
     return ref.id
   }
 
-  return { subscribeTestCases, getTestCases, createTestCase, updateTestCase, addTestRun }
+  async function createBatchTestCases(testCases: Array<Partial<TestCase> & { projectId: string }>): Promise<string[]> {
+    if (testCases.length === 0) return []
+    const batch = writeBatch(db)
+    const ids: string[] = []
+
+    for (const tc of testCases) {
+      const newDocRef = doc(collection(db, 'test_cases'))
+      ids.push(newDocRef.id)
+      batch.set(newDocRef, {
+        status: 'Untested',
+        steps: [],
+        tags: [],
+        playwrightScript: null,
+        lastRun: null,
+        ...tc,
+        createdAt: Timestamp.now(),
+        lastEditedTime: Timestamp.now(),
+      })
+    }
+
+    await batch.commit()
+    return ids
+  }
+
+  return { subscribeTestCases, getTestCases, createTestCase, createBatchTestCases, updateTestCase, addTestRun }
 }
 
 // === Notifications ===

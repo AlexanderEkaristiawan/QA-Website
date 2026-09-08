@@ -1,3 +1,22 @@
+import { config as loadEnv } from 'dotenv'
+import { resolve } from 'path'
+import { existsSync } from 'fs'
+
+// Automatically load local .env for development
+const envPaths = [
+  resolve(process.cwd(), 'netlify/.env'),
+  resolve(process.cwd(), '../netlify/.env'),
+  resolve(process.cwd(), '.env'),
+  resolve(__dirname, '../../.env'),
+  resolve(__dirname, '../../../netlify/.env'),
+  resolve(__dirname, '../../netlify/.env')
+]
+for (const p of envPaths) {
+  if (existsSync(p)) {
+    loadEnv({ path: p })
+  }
+}
+
 // CORS helper — allow only trusted origins in production.
 // Returns a fully-defined Record<string, string> so that it satisfies
 // Netlify's HandlerResponse header index signature (no undefined values).

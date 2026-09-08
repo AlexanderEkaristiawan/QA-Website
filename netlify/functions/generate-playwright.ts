@@ -1,23 +1,14 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { jsonResponse } from './_shared/response'
+import { callGemini } from './_shared/gemini'
 import axios from 'axios'
 
-async function callGemini(prompt: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) throw new Error('GEMINI_API_KEY not configured')
-  const response = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
-    },
-    { timeout: 45000 }
-  )
-  return response.data.candidates[0].content.parts[0].text as string
+function getOpenAIKey(): string | undefined {
+  return process.env.OPENAI_API_KEY
 }
 
 async function callOpenAI(prompt: string): Promise<string> {
-  const key = process.env.OPENAI_API_KEY
+  const key = getOpenAIKey()
   if (!key) throw new Error('OPENAI_API_KEY not configured')
   const response = await axios.post(
     'https://api.openai.com/v1/chat/completions',
@@ -84,9 +75,17 @@ Return ONLY valid TypeScript code with no markdown fences, no explanations — j
 
     let script: string
     try {
-      script = await callGemini(prompt)
-    } catch {
-      script = await callOpenAI(prompt)
+      script = await callGemini(prompt, 4096, 0.3)
+    } catch (geminiErr: any) {
+      if (getOpenAIKey() && getOpenAIKey() !== 'your_openai_api_key') {
+        try {
+          script = await callOpenAI(prompt)
+        } catch (openaiErr: any) {
+          throw new Error(`AI generation failed: ${geminiErr.message} | Fallback OpenAI: ${openaiErr.message}`)
+        }
+      } else {
+        throw geminiErr
+      }
     }
 
     // Strip any markdown code fences if AI included them

@@ -2,6 +2,23 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.corsHeaders = corsHeaders;
 exports.jsonResponse = jsonResponse;
+const dotenv_1 = require("dotenv");
+const path_1 = require("path");
+const fs_1 = require("fs");
+// Automatically load local .env for development
+const envPaths = [
+    (0, path_1.resolve)(process.cwd(), 'netlify/.env'),
+    (0, path_1.resolve)(process.cwd(), '../netlify/.env'),
+    (0, path_1.resolve)(process.cwd(), '.env'),
+    (0, path_1.resolve)(__dirname, '../../.env'),
+    (0, path_1.resolve)(__dirname, '../../../netlify/.env'),
+    (0, path_1.resolve)(__dirname, '../../netlify/.env')
+];
+for (const p of envPaths) {
+    if ((0, fs_1.existsSync)(p)) {
+        (0, dotenv_1.config)({ path: p });
+    }
+}
 // CORS helper — allow only trusted origins in production.
 // Returns a fully-defined Record<string, string> so that it satisfies
 // Netlify's HandlerResponse header index signature (no undefined values).

@@ -257,11 +257,11 @@ async function saveToProject() {
           v-for="tab in [
             { key: 'summary', label: '📊 Summary' },
             { key: 'headers', label: '📑 Headers' },
-            { key: 'images', label: `🖼️ Images (${metrics.imageCount})` },
-            { key: 'links', label: `🔗 Links (${metrics.linkCount})` },
+            { key: 'images', label: `🖼️ Images` },//(${metrics.imageCount})
+            { key: 'links', label: `🔗 Links` },//(${metrics.linkCount})
             { key: 'social', label: '🌐 Social' },
             { key: 'tools', label: '🛠️ Tools' },
-            { key: 'security', label: 'Security' },
+            { key: 'security', label: '🛡️ Security' },
           ] as const"
           :key="tab.key"
           @click="activeTab = tab.key"

@@ -5,19 +5,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const response_1 = require("./_shared/response");
+const gemini_1 = require("./_shared/gemini");
 const axios_1 = __importDefault(require("axios"));
-async function callGemini(prompt) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key)
-        throw new Error('GEMINI_API_KEY not configured');
-    const response = await axios_1.default.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
-    }, { timeout: 45000 });
-    return response.data.candidates[0].content.parts[0].text;
+function getOpenAIKey() {
+    return process.env.OPENAI_API_KEY;
 }
 async function callOpenAI(prompt) {
-    const key = process.env.OPENAI_API_KEY;
+    const key = getOpenAIKey();
     if (!key)
         throw new Error('OPENAI_API_KEY not configured');
     const response = await axios_1.default.post('https://api.openai.com/v1/chat/completions', {
@@ -76,10 +70,20 @@ DO NOT execute with production credentials or in a live environment without expl
 Return ONLY valid TypeScript code with no markdown fences, no explanations — just the raw .ts file content.`;
         let script;
         try {
-            script = await callGemini(prompt);
+            script = await (0, gemini_1.callGemini)(prompt, 4096, 0.3);
         }
-        catch {
-            script = await callOpenAI(prompt);
+        catch (geminiErr) {
+            if (getOpenAIKey() && getOpenAIKey() !== 'your_openai_api_key') {
+                try {
+                    script = await callOpenAI(prompt);
+                }
+                catch (openaiErr) {
+                    throw new Error(`AI generation failed: ${geminiErr.message} | Fallback OpenAI: ${openaiErr.message}`);
+                }
+            }
+            else {
+                throw geminiErr;
+            }
         }
         // Strip any markdown code fences if AI included them
         script = script.replace(/^```typescript\n?/i, '').replace(/^```ts\n?/i, '').replace(/```$/m, '').trim();

@@ -1,26 +1,10 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { jsonResponse } from './_shared/response'
+import { callGemini } from './_shared/gemini'
 import axios from 'axios'
 
-function getGeminiKey(): string | undefined {
-  return process.env.GEMINI_API_KEY
-}
 function getOpenAIKey(): string | undefined {
   return process.env.OPENAI_API_KEY
-}
-
-async function callGemini(prompt: string): Promise<string> {
-  const key = getGeminiKey()
-  if (!key) throw new Error('GEMINI_API_KEY not configured')
-  const response = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
-    {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-    },
-    { timeout: 30000 }
-  )
-  return response.data.candidates[0].content.parts[0].text as string
 }
 
 async function callOpenAI(prompt: string): Promise<string> {
@@ -63,22 +47,44 @@ export const handler: Handler = async (event: HandlerEvent) => {
       .map(b => `- [${b.severity}] [${b.source}] ${b.title}: ${b.description}`)
       .join('\n')
 
-    const prompt = `You are a senior DevOps and QA engineer. Review these failing audit metrics and bugs. Generate a comprehensive, actionable Remediation Guide with:
+    const prompt = `You are a Principal DevOps and Lead QA Automation Architect. Review these detected bugs and audit issues:
 
-1) **Executive Summary** — Overview of risks, business impact, and priority order
-2) **Root Cause Analysis** — For each issue category, explain the technical root cause
-3) **Step-by-Step Fixes** — Detailed code/configuration fixes for each issue with code snippets
+## Detected Issues:
+${bugsText || 'No specific issues provided. Outline best practices for Web Core Vitals, OWASP Security Headers, and SEO indexing.'}
 
-## Issues Found:
-${bugsText || 'No specific issues. Provide general SEO, Security, and Performance best practices.'}
+Generate a clear, high-impact, and beautifully structured Remediation Guide in clean GitHub-Flavored Markdown.
 
-Format each section clearly. Use markdown. Include specific code examples, HTTP headers, and configuration snippets where relevant.`
+### Required Structure:
+## 1. 📊 Executive Summary & Priority Matrix
+- Provide a summary table: Issue Category | Severity | Business Risk | Priority (P0/P1/P2/P3)
+- Brief business impact narrative (SEO drops, security breach risks, bounce rate degradation).
+
+## 2. 🔍 Root Cause Breakdown
+- For each distinct issue, explain the exact technical reason why it occurred (e.g. render-blocking resources, absent HTTP security headers, missing canonical/h1 tags).
+
+## 3. 🛠️ Actionable Step-by-Step Fixes
+- Provide ready-to-use code patches and configuration blocks with language tags (e.g. \`\`\`nginx, \`\`\`typescript, \`\`\`html, \`\`\`apache).
+- Include verification steps (e.g. curl command or test check).
+
+### Formatting Rules:
+- STRICTLY DO NOT use ASCII box-drawing characters (such as ┌, ┐, └, ┘, │, ─), ASCII diagrams, or mock terminal drawings.
+- Use standard markdown tables with pipe syntax (| Header 1 | Header 2 |).
+- Use clear bullet points with bold keywords.
+- Use fenced code blocks with language identifiers.`
 
     let guide: string
     try {
-      guide = await callGemini(prompt)
-    } catch {
-      guide = await callOpenAI(prompt) // Fallback
+      guide = await callGemini(prompt, 2048, 0.7)
+    } catch (geminiErr: any) {
+      if (getOpenAIKey() && getOpenAIKey() !== 'your_openai_api_key') {
+        try {
+          guide = await callOpenAI(prompt)
+        } catch (openaiErr: any) {
+          throw new Error(`AI generation failed: ${geminiErr.message} | Fallback OpenAI: ${openaiErr.message}`)
+        }
+      } else {
+        throw geminiErr
+      }
     }
 
     return jsonResponse(200, { guide }, origin)

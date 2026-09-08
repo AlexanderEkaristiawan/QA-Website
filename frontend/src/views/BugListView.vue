@@ -5,6 +5,8 @@ import { useBugStore, useCommentStore } from '@/composables/useFirestore'
 import { useAI } from '@/composables/useAI'
 import { useAuthStore } from '@/composables/useAuth'
 import { MAX_SCREENSHOTS_PER_BUG, uploadBugScreenshots } from '@/composables/useBugScreenshots'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import BugForm from '@/components/bugs/BugForm.vue'
 import ImageUploader from '@/components/bugs/ImageUploader.vue'
 import ScreenshotLightbox from '@/components/bugs/ScreenshotLightbox.vue'
@@ -29,8 +31,31 @@ const comments = ref<Comment[]>([])
 const newComment = ref('')
 const remediationGuide = ref<string | null>(null)
 const generatingGuide = ref(false)
+const showGuideModal = ref(false)
+const copiedGuide = ref(false)
 const addingComment = ref(false)
 const showCreateForm = ref(false)
+
+function renderMarkdown(content: string | null | undefined): string {
+  if (!content) return ''
+  try {
+    const rawHtml = marked.parse(content) as string
+    return DOMPurify.sanitize(rawHtml)
+  } catch {
+    return content.replace(/\n/g, '<br/>')
+  }
+}
+
+const renderedGuide = computed(() => renderMarkdown(remediationGuide.value))
+
+async function copyGuide() {
+  if (!remediationGuide.value) return
+  await navigator.clipboard.writeText(remediationGuide.value)
+  copiedGuide.value = true
+  setTimeout(() => {
+    copiedGuide.value = false
+  }, 2000)
+}
 const extraFiles = ref<File[]>([])
 const attaching = ref(false)
 const attachError = ref('')
@@ -339,22 +364,48 @@ function openLightbox(urls: string[], index: number) {
 
     <!-- AI Remediation Guide Panel -->
     <div class="lg:col-span-1">
-      <div class="card h-full">
-        <div class="card-header">
-          <h3 class="text-base font-semibold text-gray-900">📋 Remediation Guide</h3>
+      <div class="card h-full flex flex-col">
+        <div class="card-header flex items-center justify-between py-3 px-4">
+          <div class="flex items-center gap-2">
+            <span class="text-base">📋</span>
+            <h3 class="text-sm font-bold text-gray-900">Remediation Guide</h3>
+          </div>
+          <div v-if="remediationGuide" class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="copyGuide"
+              class="rounded-lg p-1.5 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+              :title="copiedGuide ? 'Copied!' : 'Copy Markdown'"
+            >
+              <i :class="copiedGuide ? 'fa-solid fa-check text-green-600' : 'fa-regular fa-copy'"></i>
+            </button>
+            <button
+              type="button"
+              @click="showGuideModal = true"
+              class="rounded-lg p-1.5 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+              title="Expand full screen"
+            >
+              <i class="fa-solid fa-up-right-and-down-left-from-center text-xs"></i>
+            </button>
+          </div>
         </div>
-        <div class="p-4 overflow-y-auto max-h-[600px]">
-          <div v-if="generatingGuide" class="flex items-center justify-center py-12">
+
+        <div class="p-4 overflow-y-auto max-h-[600px] flex-1">
+          <div v-if="generatingGuide" class="flex flex-col items-center justify-center py-16 gap-3">
             <div class="h-8 w-8 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+            <p class="text-xs text-gray-500">Gemini is synthesizing fixes...</p>
           </div>
           <div
             v-else-if="remediationGuide"
-            class="prose prose-sm max-w-none text-gray-700 text-sm leading-relaxed"
-            v-html="remediationGuide.replace(/\n/g, '<br/>')"
+            class="markdown-body"
+            v-html="renderedGuide"
           ></div>
-          <div v-else class="text-center py-10">
-            <p class="text-3xl mb-3">🤖</p>
-            <p class="text-sm text-gray-500">Click "AI Remediation Guide" to get AI-powered fix recommendations for all open bugs.</p>
+          <div v-else class="text-center py-12 px-4">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+              <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+            </div>
+            <p class="text-sm font-semibold text-gray-800">No Guide Generated Yet</p>
+            <p class="text-xs text-gray-500 mt-1">Click "AI Remediation Guide" to analyze your open bugs and get step-by-step fix recommendations.</p>
           </div>
         </div>
       </div>
@@ -428,9 +479,11 @@ function openLightbox(urls: string[], index: number) {
         </div>
 
         <!-- Remediation Guide -->
-        <div v-if="selectedBug.remediationGuide" class="rounded-xl bg-green-50 border border-green-200 p-4">
-          <p class="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">🔧 Remediation Guide</p>
-          <div class="text-sm text-green-800 leading-relaxed" v-html="selectedBug.remediationGuide.replace(/\n/g, '<br/>')"></div>
+        <div v-if="selectedBug.remediationGuide" class="rounded-xl bg-indigo-50/50 border border-indigo-200 p-4">
+          <p class="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span>🔧</span> Remediation Guide
+          </p>
+          <div class="markdown-body" v-html="renderMarkdown(selectedBug.remediationGuide)"></div>
         </div>
 
         <!-- Steps to Reproduce -->
@@ -534,4 +587,43 @@ function openLightbox(urls: string[], index: number) {
     @close="lightbox = null"
     @update:index="lightbox = lightbox ? { ...lightbox, index: $event } : null"
   />
+
+  <!-- Full Screen Remediation Guide Modal -->
+  <div
+    v-if="showGuideModal && remediationGuide"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 sm:p-6 backdrop-blur-sm"
+    @click="showGuideModal = false"
+  >
+    <div class="card w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl bg-white" @click.stop>
+      <div class="card-header flex items-center justify-between py-4 px-6 border-b border-gray-200 bg-gray-50/50">
+        <div class="flex items-center gap-3">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
+            <i class="fa-solid fa-shield-halved text-base"></i>
+          </div>
+          <div>
+            <h2 class="text-base sm:text-lg font-bold text-gray-900">AI Remediation Guide & Technical Fixes</h2>
+            <p class="text-xs text-gray-500">Structured Root Cause Analysis & Code Patches for Detected Bugs</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            @click="copyGuide"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+          >
+            <i :class="copiedGuide ? 'fa-solid fa-check text-green-600' : 'fa-regular fa-copy'"></i>
+            <span>{{ copiedGuide ? 'Copied!' : 'Copy Guide' }}</span>
+          </button>
+          <button
+            type="button"
+            @click="showGuideModal = false"
+            class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 text-lg leading-none"
+          >✕</button>
+        </div>
+      </div>
+      <div class="p-6 sm:p-8 overflow-y-auto flex-1">
+        <div class="markdown-body max-w-none" v-html="renderedGuide"></div>
+      </div>
+    </div>
+  </div>
 </template>

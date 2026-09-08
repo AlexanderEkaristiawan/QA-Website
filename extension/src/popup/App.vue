@@ -4,9 +4,10 @@ import type { ExtensionConfig } from '@/types'
 import ConnectBar from './components/ConnectBar.vue'
 import InstantAudit from './components/InstantAudit.vue'
 import CrawlMode from './components/CrawlMode.vue'
+import MockDataMode from './components/MockDataMode.vue'
 import logoIcon from '../../assets/icon48.png'
 
-const activeMode = ref<'instant' | 'crawl'>('instant')
+const activeMode = ref<'instant' | 'mockdata' | 'crawl'>('instant')
 const config = ref<ExtensionConfig>({
   apiBaseUrl: 'http://localhost:8888/.netlify/functions',
   apiToken: '',
@@ -43,8 +44,11 @@ onMounted(async () => {
         <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'instant' }" :aria-pressed="activeMode === 'instant'" @click="activeMode = 'instant'">
           Page audit
         </button>
+        <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'mockdata' }" :aria-pressed="activeMode === 'mockdata'" @click="activeMode = 'mockdata'">
+          Mock data
+        </button>
         <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'crawl' }" :aria-pressed="activeMode === 'crawl'" @click="activeMode = 'crawl'">
-          Authenticated crawl
+          Crawl
         </button>
       </nav>
     </header>
@@ -52,6 +56,7 @@ onMounted(async () => {
     <section class="panel-content">
       <ConnectBar :config="config" @update:config="config = $event" />
       <InstantAudit v-if="activeMode === 'instant'" :config="config" />
+      <MockDataMode v-else-if="activeMode === 'mockdata'" :config="config" />
       <CrawlMode v-else :config="config" />
     </section>
   </main>
