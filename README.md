@@ -103,11 +103,12 @@ Current limitation: bot summaries are updated independently, but the overall aud
 ## Project Structure
 
 ```text
-frontend/                 Vue 3, Vite, Tailwind, Firebase client, views and components
-netlify/functions/        Netlify backend functions and shared Firebase Admin helpers
+frontend/                 Vue 3, Vite, Tailwind CSS, Firebase client, views and components
+netlify/functions/        TypeScript Netlify Functions and shared Firebase Admin helpers
 extension/                Manifest V3 Vue/TypeScript companion extension
 firestore.rules           Firestore security rules
 firestore.indexes.json    Firestore composite indexes
+storage.rules             Firebase Storage security rules
 netlify.toml              Netlify build, functions, redirects, and local dev configuration
 ```
 

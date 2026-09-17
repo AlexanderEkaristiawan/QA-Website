@@ -112,15 +112,6 @@ export interface MessageAuthLoss {
   redirectUrl: string
 }
 
-export interface MessageRunInstantAudit {
-  type: 'RUN_INSTANT_AUDIT'
-}
-
-export interface MessageInstantAuditResult {
-  type: 'INSTANT_AUDIT_RESULT'
-  metrics: PageMetrics
-}
-
 export interface MessageGetSecurityHeaders {
   type: 'GET_SECURITY_HEADERS'
   url: string
@@ -132,6 +123,5 @@ export type ExtMessage =
   | MessageCrawlControl
   | MessageCrawlProgress
   | MessageAuthLoss
-  | MessageRunInstantAudit
-  | MessageInstantAuditResult
   | MessageGetSecurityHeaders
+

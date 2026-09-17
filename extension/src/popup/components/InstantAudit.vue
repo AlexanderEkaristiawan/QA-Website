@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import type { ExtensionConfig, PageMetrics } from '@/types'
+import { extractPageMetrics } from '@/content/scraper'
 import SummaryTab from './tabs/SummaryTab.vue'
 import HeadersTab from './tabs/HeadersTab.vue'
 import ImagesTab from './tabs/ImagesTab.vue'
@@ -58,7 +59,7 @@ async function runAudit(tabId?: number) {
 
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: extractMetricsInTab,
+      func: extractPageMetrics,
     })
 
     if (results[0]?.result) {
@@ -76,93 +77,6 @@ async function runAudit(tabId?: number) {
     error.value = err.message || 'Audit failed.'
   } finally {
     scanning.value = false
-  }
-}
-
-// Injected extractor function
-function extractMetricsInTab(): PageMetrics {
-  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
-  const loadTimeMs = nav ? Math.round(nav.loadEventEnd - nav.startTime) : 0
-  const domReadyMs = nav ? Math.round(nav.domContentLoadedEventEnd - nav.startTime) : 0
-
-  const titleEl = document.querySelector('title')
-  const title = titleEl ? titleEl.textContent?.trim() ?? '' : ''
-
-  function getMeta(selector: string): string {
-    return (document.querySelector(selector) as HTMLMetaElement)?.content?.trim() ?? ''
-  }
-  const metaDescription = getMeta('meta[name="description"]')
-  const keywords = getMeta('meta[name="keywords"]')
-  const robotsMeta = getMeta('meta[name="robots"]') || null
-  const author = getMeta('meta[name="author"]') || null
-  const langAttr = document.documentElement.getAttribute('lang')
-
-  const canonicalEl = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null
-  const canonicalUrl = canonicalEl?.href ?? null
-
-  const headerCounts = { h1: 0, h2: 0, h3: 0, h4: 0, h5: 0, h6: 0 }
-  const headersList: { level: number; text: string }[] = []
-  document.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(el => {
-    const level = parseInt(el.tagName[1], 10) as 1 | 2 | 3 | 4 | 5 | 6
-    headerCounts[`h${level}` as keyof typeof headerCounts]++
-    headersList.push({ level, text: (el.textContent ?? '').trim().slice(0, 200) })
-  })
-
-  const imgs = Array.from(document.querySelectorAll('img'))
-  let missingAltCount = 0, missingTitleCount = 0, brokenImages = 0
-  const images = imgs.map(img => {
-    const alt = img.getAttribute('alt') ?? ''
-    const titleAttr = img.getAttribute('title') ?? ''
-    const broken = img.naturalWidth === 0 && img.complete
-    if (!alt) missingAltCount++
-    if (!titleAttr) missingTitleCount++
-    if (broken) brokenImages++
-    return { src: img.src.slice(0, 300), alt: alt.slice(0, 200), title: titleAttr.slice(0, 200), broken }
-  })
-
-  const baseDomain = location.hostname
-  const hrefCounts: Record<string, number> = {}
-  const anchors = Array.from(document.querySelectorAll('a[href]'))
-  anchors.forEach(a => { const h = (a as HTMLAnchorElement).href; hrefCounts[h] = (hrefCounts[h] ?? 0) + 1 })
-  let missingLinkTitleCount = 0, internalLinks = 0, externalLinks = 0
-  const links = anchors.map(a => {
-    const el = a as HTMLAnchorElement
-    const href = el.href, hrefAttr = el.getAttribute('href') ?? '', t = el.getAttribute('title') ?? ''
-    if (!t) missingLinkTitleCount++
-    const internal = el.hostname === baseDomain || hrefAttr.startsWith('#') || hrefAttr.startsWith('/')
-    if (internal) internalLinks++; else externalLinks++
-    let type: 'standard' | 'anchor' | 'js' | 'mailto' = 'standard'
-    if (hrefAttr.startsWith('#')) type = 'anchor'
-    else if (hrefAttr.startsWith('javascript:')) type = 'js'
-    else if (hrefAttr.startsWith('mailto:')) type = 'mailto'
-    return { href: href.slice(0, 500), text: (el.textContent ?? '').trim().slice(0, 200), type, title: t.slice(0, 200), internal, duplicate: hrefCounts[href] > 1 }
-  })
-  const duplicateLinksCount = Object.values(hrefCounts).filter(c => c > 1).length
-
-  const scriptSrcs = Array.from(document.querySelectorAll('script[src]')).map(s => (s as HTMLScriptElement).src)
-  const knownAnalytics = ['google-analytics.com','googletagmanager.com','segment.com','mixpanel.com','plausible.io','hotjar.com','clarity.ms']
-  const analyticsScripts = scriptSrcs.filter(src => knownAnalytics.some(a => src.includes(a)))
-
-  const openGraphTags: Record<string, string> = {}
-  document.querySelectorAll('meta[property^="og:"]').forEach(m => { openGraphTags[m.getAttribute('property') ?? ''] = ((m as HTMLMetaElement).content ?? '').slice(0, 300) })
-  const twitterCardTags: Record<string, string> = {}
-  document.querySelectorAll('meta[name^="twitter:"]').forEach(m => { twitterCardTags[m.getAttribute('name') ?? ''] = ((m as HTMLMetaElement).content ?? '').slice(0, 300) })
-  const hasSchemaOrg = document.querySelector('script[type="application/ld+json"]') !== null
-
-  return {
-    url: location.href,
-    timestamp: new Date().toISOString(),
-    title, titleLength: title.length,
-    metaDescription, descriptionLength: metaDescription.length,
-    keywords, canonicalUrl, robotsMeta, langAttr, author,
-    headerCounts, headers: headersList.slice(0, 100),
-    imageCount: imgs.length, missingAltCount, missingTitleCount, brokenImages, images: images.slice(0, 50),
-    linkCount: anchors.length, internalLinks, externalLinks, duplicateLinksCount, missingLinkTitleCount, links: links.slice(0, 100),
-    hasAnalyticsScript: analyticsScripts.length > 0, analyticsScripts,
-    hasOpenGraph: Object.keys(openGraphTags).length > 0, openGraphTags,
-    hasTwitterCard: Object.keys(twitterCardTags).length > 0, twitterCardTags,
-    hasSchemaOrg, extraMetaTags: [], extraLinkTags: [],
-    loadTimeMs, domReadyMs,
   }
 }
 

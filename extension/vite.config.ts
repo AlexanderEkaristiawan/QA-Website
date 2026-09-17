@@ -15,7 +15,6 @@ export default defineConfig({
       input: {
         popup: resolve(__dirname, 'src/popup/popup.html'),
         'src/background/service-worker': resolve(__dirname, 'src/background/service-worker.ts'),
-        'src/content/scraper': resolve(__dirname, 'src/content/scraper.ts'),
       },
       output: {
         entryFileNames: '[name].js',

@@ -1,12 +1,15 @@
 /**
- * QA-Suite Content Script — extractQAMetrics()
- * Injected into target pages via chrome.scripting.executeScript.
- * Runs entirely in the page context and returns a structured PageMetrics object.
- *
- * Security: All string values from the DOM are kept as data (never innerHTML-rendered)
- * and the popup HTML-escapes them before rendering. This prevents XSS from page content.
+ * QA-Suite Page Metrics Extractor — extractPageMetrics()
+ * Runs inside target web pages via chrome.scripting.executeScript.
+ * Collects SEO, accessibility, performance, and structure metrics.
+ * 
+ * Note: This function must remain pure and self-contained (no external closures)
+ * so it can be serialized and injected across browser context boundaries.
  */
-(function extractQAMetrics() {
+
+import type { PageMetrics } from '../types/index'
+
+export function extractPageMetrics(): PageMetrics {
   const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
   const loadTimeMs = nav ? Math.round(nav.loadEventEnd - nav.startTime) : 0
   const domReadyMs = nav ? Math.round(nav.domContentLoadedEventEnd - nav.startTime) : 0
@@ -177,4 +180,4 @@
     loadTimeMs,
     domReadyMs,
   }
-})()
+}

@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import type { PageMetrics } from '@/types'
 
-defineProps<{
+const props = defineProps<{
   metrics: PageMetrics
 }>()
+
+function getHeaderCount(lvl: number): number {
+  const key = `h${lvl}` as keyof PageMetrics['headerCounts']
+  return props.metrics.headerCounts[key] ?? 0
+}
 </script>
 
 <template>
@@ -18,7 +23,7 @@ defineProps<{
             class="text-sm font-extrabold"
             :class="lvl === 1 && metrics.headerCounts.h1 === 0 ? 'text-red-500' : lvl === 1 && metrics.headerCounts.h1 === 1 ? 'text-green-600' : 'text-gray-900'"
           >
-            {{ (metrics.headerCounts as any)[`h${lvl}`] }}
+            {{ getHeaderCount(lvl) }}
           </span>
         </div>
       </div>
