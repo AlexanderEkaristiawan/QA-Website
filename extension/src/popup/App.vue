@@ -5,9 +5,11 @@ import ConnectBar from './components/ConnectBar.vue'
 import InstantAudit from './components/InstantAudit.vue'
 import CrawlMode from './components/CrawlMode.vue'
 import MockDataMode from './components/MockDataMode.vue'
+import InspectUIMode from './components/InspectUIMode.vue'
+import ScreenSimulator from './components/ScreenSimulator.vue'
 import logoIcon from '../../assets/icon48.png'
 
-const activeMode = ref<'instant' | 'mockdata' | 'crawl'>('instant')
+const activeMode = ref<'instant' | 'mockdata' | 'crawl' | 'inspect' | 'simulator'>('instant')
 const config = ref<ExtensionConfig>({
   apiBaseUrl: 'http://localhost:8888/.netlify/functions',
   apiToken: '',
@@ -44,11 +46,17 @@ onMounted(async () => {
         <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'instant' }" :aria-pressed="activeMode === 'instant'" @click="activeMode = 'instant'">
           Page audit
         </button>
+        <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'inspect' }" :aria-pressed="activeMode === 'inspect'" @click="activeMode = 'inspect'">
+          Inspect UI
+        </button>
         <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'mockdata' }" :aria-pressed="activeMode === 'mockdata'" @click="activeMode = 'mockdata'">
           Mock data
         </button>
         <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'crawl' }" :aria-pressed="activeMode === 'crawl'" @click="activeMode = 'crawl'">
           Crawl
+        </button>
+        <button type="button" class="mode-button" :class="{ 'is-active': activeMode === 'simulator' }" :aria-pressed="activeMode === 'simulator'" @click="activeMode = 'simulator'">
+          Screen Simulator
         </button>
       </nav>
     </header>
@@ -56,6 +64,8 @@ onMounted(async () => {
     <section class="panel-content">
       <ConnectBar :config="config" @update:config="config = $event" />
       <InstantAudit v-if="activeMode === 'instant'" :config="config" />
+      <InspectUIMode v-else-if="activeMode === 'inspect'" :config="config" />
+      <ScreenSimulator v-else-if="activeMode === 'simulator'" />
       <MockDataMode v-else-if="activeMode === 'mockdata'" :config="config" />
       <CrawlMode v-else :config="config" />
     </section>

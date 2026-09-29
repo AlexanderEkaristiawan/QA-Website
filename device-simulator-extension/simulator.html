@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Screen Simulator</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #202124; color: #e8eaed;
+  }
+  body {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    overflow: hidden;
+  }
+
+  /* LEFT: Simulator Workspace */
+  .workspace {
+    display: flex; flex-direction: column;
+    border-right: 1px solid #3c4043;
+    height: 100%;
+  }
+  .toolbar {
+    background-color: #2f3033;
+    border-bottom: 1px solid #3c4043;
+    padding: 10px; display: flex; align-items: center; gap: 12px;
+    font-size: 13px;
+  }
+  .toolbar select, .toolbar input {
+    background-color: #202124; border: 1px solid #3c4043;
+    color: #e8eaed; padding: 4px 8px; border-radius: 4px;
+  }
+  .num-input { width: 60px; text-align: center; }
+  .canvas-area {
+    flex: 1; background-color: #292a2d; overflow: auto;
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 20px;
+  }
+  .device-frame {
+    background: #fff;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    transition: width 0.15s ease, height 0.15s ease;
+    border-right: 4px solid #5f6368;
+    border-bottom: 4px solid #5f6368;
+  }
+  iframe { width: 100%; height: 100%; border: none; }
+
+  /* RIGHT: Control Panel */
+  .control-panel { display: flex; flex-direction: column; }
+  .panel-tabs {
+    background-color: #2f3033; border-bottom: 1px solid #3c4043;
+    padding: 8px; display: flex; gap: 15px; font-size: 12px; color: #9aa0a6;
+  }
+  .tab.active { color: #81b1ff; border-bottom: 2px solid #81b1ff; font-weight: bold; }
+  .panel-body { padding: 15px; display: flex; flex-direction: column; gap: 15px; }
+  .url-bar { display: flex; flex-direction: column; gap: 5px; }
+  .url-bar input {
+    width: 100%; padding: 6px; background: #2f3033;
+    border: 1px solid #3c4043; color: #fff; border-radius: 4px;
+  }
+  .note { font-size: 11px; color: #9aa0a6; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+  <div class="workspace">
+    <div class="toolbar">
+      <label>Dimensions:</label>
+      <select id="preset-select">
+        <option value="responsive">Responsive</option>
+        <option value="iphone">iPhone 14 (393 x 852)</option>
+        <option value="ipad">iPad Air (820 x 1180)</option>
+        <option value="desktop">MacBook Air (1280 x 800)</option>
+      </select>
+      <div>
+        <input type="number" id="width-input" class="num-input" value="666">
+        <span>x</span>
+        <input type="number" id="height-input" class="num-input" value="815">
+      </div>
+      <button id="rotate-btn" title="Swap width and height">⟳ Rotate</button>
+    </div>
+    <div class="canvas-area">
+      <div id="device-container" class="device-frame" style="width: 666px; height: 815px;">
+        <iframe id="target-frame" src="https://example.com"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <div class="control-panel">
+    <div class="panel-tabs">
+      <div class="tab active">Device Config</div>
+    </div>
+    <div class="panel-body">
+      <div class="url-bar">
+        <label class="note">Target URL:</label>
+        <input type="text" id="url-input" value="https://example.com" placeholder="https://...">
+      </div>
+      <p class="note">⚡ Active size: <span id="metric-text" style="color:#a8ffb2;">666 x 815</span></p>
+      <p class="note">This window strips X-Frame-Options / CSP headers on framed
+      pages so local/dev sites you trust can load here. Don't point it at
+      sites you don't control.</p>
+    </div>
+  </div>
+
+  <script src="simulator.js"></script>
+</body>
+</html>

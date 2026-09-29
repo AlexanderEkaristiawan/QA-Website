@@ -69,9 +69,70 @@ chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) =>
         source: 'unavailable',
         inspectedUrl: msg.url,
       } satisfies SecurityResponseData))
+  } else if (msg.type === 'RESIZE_WINDOW') {
+    // Side panels cannot reliably query tabs/windows — delegate to the background
+    chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      .then(([tab]) => {
+        if (!tab?.windowId) { sendResponse({ ok: false, error: 'No active tab found' }); return }
+        return chrome.windows.update(tab.windowId, {
+          width: msg.width,
+          height: msg.height,
+          state: 'normal',
+        }).then(() => sendResponse({ ok: true }))
+      })
+      .catch((err: any) => sendResponse({ ok: false, error: String(err) }))
+  } else if (msg.type === 'NAVIGATE_TAB') {
+    chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      .then(([tab]) => {
+        if (!tab?.id) { sendResponse({ ok: false, error: 'No active tab found' }); return }
+        return chrome.tabs.update(tab.id, { url: msg.url })
+          .then(() => sendResponse({ ok: true }))
+      })
+      .catch((err: any) => sendResponse({ ok: false, error: String(err) }))
+  } else if (msg.type === 'SET_VIEWPORT') {
+    // Use the debugger protocol to override only the tab's viewport — window stays the same
+    chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      .then(([tab]) => {
+        if (!tab?.id) { sendResponse({ ok: false, error: 'No active tab found' }); return }
+        return setTabViewport(tab.id, msg.width, msg.height, msg.mobile ?? false)
+          .then(() => sendResponse({ ok: true }))
+      })
+      .catch((err: any) => sendResponse({ ok: false, error: String(err) }))
+  } else if (msg.type === 'CLEAR_VIEWPORT') {
+    chrome.tabs.query({ active: true, lastFocusedWindow: true })
+      .then(([tab]) => {
+        if (!tab?.id) { sendResponse({ ok: false, error: 'No active tab found' }); return }
+        return clearTabViewport(tab.id)
+          .then(() => sendResponse({ ok: true }))
+      })
+      .catch((err: any) => sendResponse({ ok: false, error: String(err) }))
   }
   return true // Keep channel open for async
 })
+
+// ── Viewport emulation via Chrome Debugger Protocol ───────────────────────────
+// Mirrors what DevTools' device toolbar does: overrides the tab's CSS viewport
+// without touching the browser window size.
+async function setTabViewport(tabId: number, width: number, height: number, mobile: boolean): Promise<void> {
+  try { await chrome.debugger.attach({ tabId }, '1.3') } catch { /* already attached */ }
+  await chrome.debugger.sendCommand({ tabId }, 'Emulation.setDeviceMetricsOverride', {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile,
+    screenWidth: width,
+    screenHeight: height,
+    positionX: 0,
+    positionY: 0,
+  })
+}
+
+async function clearTabViewport(tabId: number): Promise<void> {
+  try {
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.clearDeviceMetricsOverride', {})
+    await chrome.debugger.detach({ tabId })
+  } catch { /* tab may not have debugger attached */ }
+}
 
 async function getSecurityHeaders(url: string, tabId?: number): Promise<SecurityResponseData> {
   const navigationResponse = tabId === undefined ? undefined : securityResponses.get(tabId)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { ExtensionConfig } from '@/types'
 
 const props = defineProps<{ config: ExtensionConfig }>()
@@ -10,14 +10,33 @@ const baseUrl = ref('')
 const token = ref('')
 const projectId = ref('')
 const savedMsg = ref(false)
-const isConnected = computed(() => Boolean(props.config.apiToken && props.config.projectId))
+const connectionState = ref<'unknown' | 'checking' | 'connected' | 'disconnected'>('unknown')
+const isConnected = computed(() => connectionState.value === 'connected')
 const projectLabel = computed(() => props.config.projectId ? `Project ${props.config.projectId.slice(0, 12)}` : 'No project connected')
 
-onMounted(() => {
-  baseUrl.value = props.config.apiBaseUrl || 'http://localhost:8888/.netlify/functions'
-  token.value = props.config.apiToken || ''
-  projectId.value = props.config.projectId || ''
-})
+watch(() => props.config, (config) => {
+  baseUrl.value = config.apiBaseUrl || 'http://localhost:8888/.netlify/functions'
+  token.value = config.apiToken || ''
+  projectId.value = config.projectId || ''
+  void verifyConnection(config)
+}, { immediate: true })
+
+async function verifyConnection(config: ExtensionConfig) {
+  if (!config.apiBaseUrl || !config.apiToken || !config.projectId) {
+    connectionState.value = 'disconnected'
+    return
+  }
+
+  connectionState.value = 'checking'
+  try {
+    const response = await fetch(`${config.apiBaseUrl}/verify-extension-token?projectId=${encodeURIComponent(config.projectId)}`, {
+      headers: { Authorization: `Bearer ${config.apiToken}` },
+    })
+    connectionState.value = response.ok ? 'connected' : 'disconnected'
+  } catch {
+    connectionState.value = 'disconnected'
+  }
+}
 
 async function saveConfig() {
   const updated: ExtensionConfig = {
@@ -41,7 +60,9 @@ async function saveConfig() {
       <div class="connection-copy">
         <span class="connection-dot" :class="{ 'is-connected': isConnected }" aria-hidden="true"></span>
         <div>
-          <span class="connection-title">{{ isConnected ? 'Project connected' : 'Project not connected' }}</span>
+          <span class="connection-title">
+            {{ connectionState === 'checking' ? 'Checking connection...' : isConnected ? 'Project connected' : 'Project not connected' }}
+          </span>
           <span class="connection-detail">{{ projectLabel }}</span>
         </div>
       </div>

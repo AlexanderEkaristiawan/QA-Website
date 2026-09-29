@@ -6,6 +6,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..')
 const distDir = path.resolve(rootDir, 'dist')
 
+// Copy the static declarativeNetRequest ruleset used by Screen Simulator.
+const rulesSrc = path.join(rootDir, 'rules.json')
+const rulesDist = path.join(distDir, 'rules.json')
+if (fs.existsSync(rulesSrc)) {
+  fs.copyFileSync(rulesSrc, rulesDist)
+  console.log('✓ Copied rules.json to dist/')
+}
+
 // Copy manifest.json
 const manifestSrc = path.join(rootDir, 'manifest.json')
 const manifestDist = path.join(distDir, 'manifest.json')

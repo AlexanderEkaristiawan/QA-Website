@@ -118,10 +118,94 @@ export interface MessageGetSecurityHeaders {
   tabId?: number
 }
 
+// ── Inspect UI & VisBug Types ───────────────────────────────────────────────
+export type InspectToolType =
+  | 'none'
+  | 'inspect'
+  | 'guides'
+  | 'text'
+  | 'margin'
+  | 'padding'
+  | 'color'
+  | 'move'
+  | 'delete'
+  | 'a11y'
+
+export type RatioPreset = 'free' | '16:9' | '16:10' | '4:3' | '9:16' | '1:1' | '21:9' | 'custom'
+
+export interface ViewportRatioConfig {
+  preset: RatioPreset
+  ratio?: number
+  scale: number
+  enabled: boolean
+  baseWidth?: number
+  baseHeight?: number
+}
+
+export interface InspectElementDetails {
+  tagName: string
+  id?: string
+  className?: string
+  rect: { width: number; height: number; top: number; left: number }
+  styles: {
+    fontFamily: string
+    fontSize: string
+    fontWeight: string
+    lineHeight: string
+    color: string
+    backgroundColor: string
+    borderColor: string
+    margin: string
+    padding: string
+    display: string
+    boxSizing: string
+    contrastRatio?: string
+  }
+}
+
+export interface MessageInspectElementSelected {
+  type: 'INSPECT_ELEMENT_SELECTED'
+  details: InspectElementDetails | null
+}
+
+export interface MessageA11yIssuesFound {
+  type: 'A11Y_ISSUES_FOUND'
+  count: number
+}
+
+export interface MessageResizeWindow {
+  type: 'RESIZE_WINDOW'
+  width: number
+  height: number
+}
+
+export interface MessageNavigateTab {
+  type: 'NAVIGATE_TAB'
+  url: string
+}
+
+export interface MessageSetViewport {
+  type: 'SET_VIEWPORT'
+  width: number
+  height: number
+  mobile?: boolean
+}
+
+export interface MessageClearViewport {
+  type: 'CLEAR_VIEWPORT'
+}
+
 export type ExtMessage =
   | MessageStartCrawl
   | MessageCrawlControl
   | MessageCrawlProgress
   | MessageAuthLoss
   | MessageGetSecurityHeaders
+  | MessageInspectElementSelected
+  | MessageA11yIssuesFound
+  | MessageResizeWindow
+  | MessageNavigateTab
+  | MessageSetViewport
+  | MessageClearViewport
+
 
