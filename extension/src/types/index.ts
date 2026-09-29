@@ -195,6 +195,14 @@ export interface MessageClearViewport {
   type: 'CLEAR_VIEWPORT'
 }
 
+export interface MessageMarginDistanceMeasured {
+  type: 'MARGIN_DISTANCE_MEASURED'
+  first: InspectElementDetails
+  second: InspectElementDetails | null
+  hDistance: number
+  vDistance: number
+}
+
 export type ExtMessage =
   | MessageStartCrawl
   | MessageCrawlControl
@@ -202,6 +210,7 @@ export type ExtMessage =
   | MessageAuthLoss
   | MessageGetSecurityHeaders
   | MessageInspectElementSelected
+  | MessageMarginDistanceMeasured
   | MessageA11yIssuesFound
   | MessageResizeWindow
   | MessageNavigateTab

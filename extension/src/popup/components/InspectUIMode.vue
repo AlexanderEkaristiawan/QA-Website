@@ -312,6 +312,31 @@ function showStatus(msg: string) {
       </div>
     </div>
 
+    <!-- Margin & Distance Tool Guidance Banner -->
+    <div v-if="activeTool === 'margin'" class="card p-3 bg-amber-50 border-amber-200 text-xs text-amber-900 space-y-2">
+      <div class="flex items-center justify-between font-bold">
+        <span class="flex items-center gap-1.5 text-amber-950">
+          <span>📐</span>
+          <span>Object Distance &amp; Margin</span>
+        </span>
+        <button
+          type="button"
+          @click="selectTool('margin')"
+          class="text-[10px] text-amber-800 hover:text-amber-950 underline font-semibold"
+        >
+          ↺ Reset Pair
+        </button>
+      </div>
+      <p class="text-[11px] text-amber-800 leading-relaxed">
+        Click the <strong>1st object</strong> on your page, then click the <strong>2nd object</strong>.
+        The exact horizontal &amp; vertical distance in pixels and alignment guides are displayed directly on the screen.
+      </p>
+      <div class="text-[10px] text-amber-700 bg-amber-100/70 p-1.5 rounded flex items-center gap-1">
+        <span>💡</span>
+        <span>Tip: Hover over elements to preview distances in real time • Press ESC to clear.</span>
+      </div>
+    </div>
+
     <!-- ================================================================= -->
     <!-- SECTION 3: LIVE ELEMENT INSPECTION CARD                           -->
     <!-- ================================================================= -->

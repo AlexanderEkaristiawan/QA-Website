@@ -262,10 +262,10 @@ export function setInspectTool(tool: InspectToolType): void {
 
       state.selectedElement = target as HTMLElement
       const details = extractElementDetails(state.selectedElement)
-      chrome.runtime.sendMessage({
+      sendEngineMessage({
         type: 'INSPECT_ELEMENT_SELECTED',
         details,
-      }).catch(() => {})
+      })
     }
 
     window.addEventListener('pointermove', onPointerMove, true)
@@ -421,18 +421,565 @@ export function setInspectTool(tool: InspectToolType): void {
     })
   }
 
-  // ── 4. MARGIN & PADDING ADJUSTERS ───────────────────────────────────────────
-  else if (tool === 'margin' || tool === 'padding') {
-    const color = tool === 'margin' ? '#f59e0b' : '#10b981'
+  // ── 4. MARGIN & DISTANCE MEASUREMENT TOOL ──────────────────────────────────
+  else if (tool === 'margin') {
+    let selectedFirst: HTMLElement | null = null
+    let selectedSecond: HTMLElement | null = null
+    let hoveredElement: HTMLElement | null = null
+
+    // Container for all margin overlays
+    const marginContainer = document.createElement('div')
+    marginContainer.id = 'qas-margin-container'
+    marginContainer.style.cssText = `
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2147483646;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `
+    overlayRoot.appendChild(marginContainer)
+
+    // SVG canvas for crisp lines, end ticks, and projections
+    const svgCanvas = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svgCanvas.style.cssText = `
+      position: absolute;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      overflow: visible;
+    `
+    marginContainer.appendChild(svgCanvas)
+
+    // HTML layer for element highlight boxes and distance badges
+    const htmlLayer = document.createElement('div')
+    htmlLayer.style.cssText = `
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    `
+    marginContainer.appendChild(htmlLayer)
+
+    // Floating HUD at top-center
+    const hud = document.createElement('div')
+    hud.id = 'qas-margin-hud'
+    hud.style.cssText = `
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.94);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0,0,0,0.2);
+      backdrop-filter: blur(10px);
+      border-radius: 9999px;
+      padding: 6px 16px;
+      font-size: 11px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: auto;
+      z-index: 2147483647;
+      user-select: none;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    `
+    marginContainer.appendChild(hud)
+
+    const createHudResetBtn = (label = '↺ Reset') => {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.style.cssText = `
+        background: rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 3px 10px;
+        border-radius: 9999px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.1s;
+      `
+      btn.textContent = label
+      btn.onmouseenter = () => { btn.style.background = 'rgba(255, 255, 255, 0.25)' }
+      btn.onmouseleave = () => { btn.style.background = 'rgba(255, 255, 255, 0.12)' }
+      btn.onclick = (e) => {
+        e.stopPropagation()
+        resetSelection()
+      }
+      return btn
+    }
+
+    const resetSelection = () => {
+      selectedFirst = null
+      selectedSecond = null
+      hoveredElement = null
+      state.selectedElement = null
+      svgCanvas.replaceChildren()
+      htmlLayer.replaceChildren()
+      updateHud('init')
+    }
+
+    const updateHud = (
+      step: 'init' | 'first' | 'locked',
+      el1?: HTMLElement | null,
+      el2?: HTMLElement | null,
+      hGap?: number,
+      vGap?: number
+    ) => {
+      hud.replaceChildren()
+
+      const icon = document.createElement('span')
+      icon.textContent = '📐'
+      hud.appendChild(icon)
+
+      const title = document.createElement('span')
+      title.style.cssText = 'font-weight: 700; color: #f59e0b; margin-right: 4px;'
+      title.textContent = 'Margin Inspector'
+      hud.appendChild(title)
+
+      if (step === 'init') {
+        const text = document.createElement('span')
+        text.style.color = '#cbd5e1'
+        text.textContent = 'Click 1st object to start measuring'
+        hud.appendChild(text)
+      } else if (step === 'first' && el1) {
+        const rect1 = el1.getBoundingClientRect()
+        const text1 = document.createElement('span')
+        text1.style.cssText = 'background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: monospace;'
+        text1.textContent = `[1] <${el1.tagName.toLowerCase()}> ${Math.round(rect1.width)}×${Math.round(rect1.height)}px`
+        hud.appendChild(text1)
+
+        const arrow = document.createElement('span')
+        arrow.style.color = '#94a3b8'
+        arrow.textContent = '──'
+        hud.appendChild(arrow)
+
+        const hint = document.createElement('span')
+        hint.style.color = '#38bdf8'
+        hint.textContent = 'Hover or click 2nd object'
+        hud.appendChild(hint)
+
+        const resetBtn = createHudResetBtn()
+        hud.appendChild(resetBtn)
+      } else if (step === 'locked' && el1 && el2) {
+        const rect1 = el1.getBoundingClientRect()
+        const rect2 = el2.getBoundingClientRect()
+
+        const text1 = document.createElement('span')
+        text1.style.cssText = 'background: rgba(245, 158, 11, 0.2); color: #fbbf24; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: monospace;'
+        text1.textContent = `[1] <${el1.tagName.toLowerCase()}> ${Math.round(rect1.width)}×${Math.round(rect1.height)}`
+        hud.appendChild(text1)
+
+        const badge = document.createElement('span')
+        badge.style.cssText = 'background: #ef4444; color: #ffffff; padding: 3px 9px; border-radius: 9999px; font-weight: 700; font-family: monospace; display: flex; align-items: center; gap: 8px;'
+        badge.textContent = `↔ ${hGap ?? 0}px  |  ↕ ${vGap ?? 0}px`
+        hud.appendChild(badge)
+
+        const text2 = document.createElement('span')
+        text2.style.cssText = 'background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: monospace;'
+        text2.textContent = `[2] <${el2.tagName.toLowerCase()}> ${Math.round(rect2.width)}×${Math.round(rect2.height)}`
+        hud.appendChild(text2)
+
+        const resetBtn = createHudResetBtn('↺ Measure New Pair')
+        hud.appendChild(resetBtn)
+      }
+    }
+
+    const renderElementBox = (
+      el: HTMLElement,
+      type: 'first' | 'second' | 'hover-first' | 'hover-second'
+    ) => {
+      const rect = el.getBoundingClientRect()
+      const box = document.createElement('div')
+      const isFirst = type === 'first' || type === 'hover-first'
+      const isLocked = type === 'first' || type === 'second'
+      const borderColor = isFirst ? '#f59e0b' : '#38bdf8'
+      const bgColor = isFirst ? 'rgba(245, 158, 11, 0.12)' : 'rgba(56, 189, 248, 0.12)'
+      const borderStyle = isLocked ? 'solid' : 'dashed'
+
+      box.style.cssText = `
+        position: absolute;
+        top: ${rect.top}px;
+        left: ${rect.left}px;
+        width: ${rect.width}px;
+        height: ${rect.height}px;
+        border: 2px ${borderStyle} ${borderColor};
+        background: ${bgColor};
+        border-radius: 3px;
+        pointer-events: none;
+        box-sizing: border-box;
+      `
+
+      const badge = document.createElement('div')
+      badge.style.cssText = `
+        position: absolute;
+        bottom: calc(100% + 4px);
+        left: 0;
+        background: #0f172a;
+        color: ${borderColor};
+        border: 1px solid ${borderColor};
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        font-family: monospace;
+        white-space: nowrap;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      `
+      const prefix = isFirst ? '[1]' : '[2]'
+      const lockSuffix = !isLocked ? ' (click to select)' : ''
+      badge.textContent = `${prefix} <${el.tagName.toLowerCase()}> • ${Math.round(rect.width)}×${Math.round(rect.height)}px${lockSuffix}`
+      box.appendChild(badge)
+      htmlLayer.appendChild(box)
+    }
+
+    const drawMeasurement = (el1: HTMLElement, el2: HTMLElement, isLocked: boolean) => {
+      svgCanvas.replaceChildren()
+      htmlLayer.replaceChildren()
+
+      renderElementBox(el1, 'first')
+      renderElementBox(el2, isLocked ? 'second' : 'hover-second')
+
+      const r1 = el1.getBoundingClientRect()
+      const r2 = el2.getBoundingClientRect()
+
+      const hSeparated = r1.right <= r2.left || r2.right <= r1.left
+      const leftRect = r1.left <= r2.left ? r1 : r2
+      const rightRect = r1.left <= r2.left ? r2 : r1
+      const hGap = hSeparated ? Math.round(rightRect.left - leftRect.right) : 0
+
+      const vSeparated = r1.bottom <= r2.top || r2.bottom <= r1.top
+      const topRect = r1.top <= r2.top ? r1 : r2
+      const bottomRect = r1.top <= r2.top ? r2 : r1
+      const vGap = vSeparated ? Math.round(bottomRect.top - topRect.bottom) : 0
+
+      const overlapX1 = Math.max(r1.left, r2.left)
+      const overlapX2 = Math.min(r1.right, r2.right)
+      const overlapW = Math.max(0, overlapX2 - overlapX1)
+
+      const overlapY1 = Math.max(r1.top, r2.top)
+      const overlapY2 = Math.min(r1.bottom, r2.bottom)
+      const overlapH = Math.max(0, overlapY2 - overlapY1)
+
+      const is2Inside1 = r2.left >= r1.left - 1 && r2.right <= r1.right + 1 && r2.top >= r1.top - 1 && r2.bottom <= r1.bottom + 1
+      const is1Inside2 = r1.left >= r2.left - 1 && r1.right <= r2.right + 1 && r1.top >= r2.top - 1 && r1.bottom <= r2.bottom + 1
+
+      const appendSvgLine = (x1: number, y1: number, x2: number, y2: number, color = '#ef4444', dashed = false) => {
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
+        line.setAttribute('x1', String(x1))
+        line.setAttribute('y1', String(y1))
+        line.setAttribute('x2', String(x2))
+        line.setAttribute('y2', String(y2))
+        line.setAttribute('stroke', color)
+        line.setAttribute('stroke-width', '2')
+        if (dashed) {
+          line.setAttribute('stroke-dasharray', '4,3')
+          line.setAttribute('opacity', '0.7')
+        }
+        svgCanvas.appendChild(line)
+      }
+
+      const appendDistanceBadge = (x: number, y: number, text: string) => {
+        const badge = document.createElement('div')
+        badge.style.cssText = `
+          position: absolute;
+          top: ${y}px;
+          left: ${x}px;
+          transform: translate(-50%, -50%);
+          background: #0f172a;
+          color: #ffffff;
+          border: 1.5px solid #ef4444;
+          padding: 3px 7px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 700;
+          font-family: monospace;
+          white-space: nowrap;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+          pointer-events: none;
+          z-index: 2;
+        `
+        badge.textContent = text
+        htmlLayer.appendChild(badge)
+      }
+
+      const drawVLineWithCaps = (x: number, y1: number, y2: number, label: string) => {
+        const yTop = Math.min(y1, y2)
+        const yBot = Math.max(y1, y2)
+        if (yBot - yTop <= 0) return
+        appendSvgLine(x, yTop, x, yBot, '#ef4444')
+        appendSvgLine(x - 7, yTop, x + 7, yTop, '#ef4444')
+        appendSvgLine(x - 7, yBot, x + 7, yBot, '#ef4444')
+        appendDistanceBadge(x, (yTop + yBot) / 2, `↕ ${label}`)
+      }
+
+      const drawHLineWithCaps = (y: number, x1: number, x2: number, label: string) => {
+        const xLeft = Math.min(x1, x2)
+        const xRight = Math.max(x1, x2)
+        if (xRight - xLeft <= 0) return
+        appendSvgLine(xLeft, y, xRight, y, '#ef4444')
+        appendSvgLine(xLeft, y - 7, xLeft, y + 7, '#ef4444')
+        appendSvgLine(xRight, y - 7, xRight, y + 7, '#ef4444')
+        appendDistanceBadge((xLeft + xRight) / 2, y, `↔ ${label}`)
+      }
+
+      if (is2Inside1 || is1Inside2) {
+        // Nested: Inner element inside Outer element
+        const outer = is2Inside1 ? r1 : r2
+        const inner = is2Inside1 ? r2 : r1
+        const topGap = Math.round(inner.top - outer.top)
+        const botGap = Math.round(outer.bottom - inner.bottom)
+        const leftGap = Math.round(inner.left - outer.left)
+        const rightGap = Math.round(outer.right - inner.right)
+
+        const innerMidX = inner.left + inner.width / 2
+        const innerMidY = inner.top + inner.height / 2
+
+        if (topGap > 0) drawVLineWithCaps(innerMidX, outer.top, inner.top, `${topGap}px`)
+        if (botGap > 0) drawVLineWithCaps(innerMidX, inner.bottom, outer.bottom, `${botGap}px`)
+        if (leftGap > 0) drawHLineWithCaps(innerMidY, outer.left, inner.left, `${leftGap}px`)
+        if (rightGap > 0) drawHLineWithCaps(innerMidY, inner.right, outer.right, `${rightGap}px`)
+      } else if (vGap > 0 && overlapW > 0) {
+        // Vertically separated with horizontal overlap
+        const midX = overlapX1 + overlapW / 2
+        drawVLineWithCaps(midX, topRect.bottom, bottomRect.top, `${vGap}px`)
+      } else if (hGap > 0 && overlapH > 0) {
+        // Horizontally separated with vertical overlap
+        const midY = overlapY1 + overlapH / 2
+        drawHLineWithCaps(midY, leftRect.right, rightRect.left, `${hGap}px`)
+      } else if (hGap > 0 && vGap > 0) {
+        // Diagonal separation: both gaps exist
+        const midX = rightRect.left + rightRect.width / 2
+        const midY = topRect.top + topRect.height / 2
+
+        // Horizontal dimension line with projection
+        drawHLineWithCaps(midY, leftRect.right, rightRect.left, `${hGap}px`)
+        const rightAnchorY = topRect === leftRect ? rightRect.top : rightRect.bottom
+        appendSvgLine(rightRect.left, midY, rightRect.left, rightAnchorY, '#ef4444', true)
+
+        // Vertical dimension line with projection
+        drawVLineWithCaps(midX, topRect.bottom, bottomRect.top, `${vGap}px`)
+        const topAnchorX = bottomRect === rightRect ? topRect.right : topRect.left
+        appendSvgLine(topAnchorX, topRect.bottom, midX, topRect.bottom, '#ef4444', true)
+      } else if (overlapW > 0 && overlapH > 0) {
+        // Partial intersection / overlap
+        const ovBox = document.createElement('div')
+        ovBox.style.cssText = `
+          position: absolute;
+          top: ${overlapY1}px;
+          left: ${overlapX1}px;
+          width: ${overlapW}px;
+          height: ${overlapH}px;
+          background: rgba(239, 68, 68, 0.2);
+          border: 1.5px dashed #ef4444;
+          border-radius: 2px;
+          pointer-events: none;
+        `
+        htmlLayer.appendChild(ovBox)
+        appendDistanceBadge(overlapX1 + overlapW / 2, overlapY1 + overlapH / 2, `Overlap: ${overlapW}×${overlapH}px`)
+      }
+
+      updateHud(isLocked ? 'locked' : 'first', el1, el2, hGap, vGap)
+
+      if (isLocked) {
+        sendEngineMessage({
+          type: 'MARGIN_DISTANCE_MEASURED',
+          first: extractElementDetails(el1),
+          second: extractElementDetails(el2),
+          hDistance: hGap,
+          vDistance: vGap,
+        })
+      }
+    }
+
+    const refreshActiveView = () => {
+      if (selectedFirst && selectedSecond) {
+        drawMeasurement(selectedFirst, selectedSecond, true)
+      } else if (selectedFirst && hoveredElement) {
+        drawMeasurement(selectedFirst, hoveredElement, false)
+      } else if (selectedFirst) {
+        svgCanvas.replaceChildren()
+        htmlLayer.replaceChildren()
+        renderElementBox(selectedFirst, 'first')
+        updateHud('first', selectedFirst)
+      } else if (hoveredElement) {
+        svgCanvas.replaceChildren()
+        htmlLayer.replaceChildren()
+        renderElementBox(hoveredElement, 'hover-first')
+      }
+    }
+
+    updateHud('init')
+
+    const onClick = (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      const target = getValidTarget(e.target as Element)
+      if (!target) return
+
+      if (!selectedFirst) {
+        selectedFirst = target as HTMLElement
+        selectedSecond = null
+        state.selectedElement = selectedFirst
+        refreshActiveView()
+        sendEngineMessage({
+          type: 'INSPECT_ELEMENT_SELECTED',
+          details: extractElementDetails(selectedFirst),
+        })
+      } else if (!selectedSecond) {
+        if (target === selectedFirst) return
+        selectedSecond = target as HTMLElement
+        refreshActiveView()
+      } else {
+        selectedFirst = target as HTMLElement
+        selectedSecond = null
+        state.selectedElement = selectedFirst
+        refreshActiveView()
+        sendEngineMessage({
+          type: 'INSPECT_ELEMENT_SELECTED',
+          details: extractElementDetails(selectedFirst),
+        })
+      }
+    }
+
+    const onPointerMove = (e: PointerEvent) => {
+      const target = getValidTarget(e.target as Element)
+      if (!target || target === document.documentElement || target === document.body) {
+        if (!selectedSecond && hoveredElement) {
+          hoveredElement = null
+          refreshActiveView()
+        }
+        return
+      }
+
+      if (target === hoveredElement) return
+      hoveredElement = target as HTMLElement
+
+      if (!selectedFirst) {
+        svgCanvas.replaceChildren()
+        htmlLayer.replaceChildren()
+        renderElementBox(hoveredElement, 'hover-first')
+      } else if (!selectedSecond && hoveredElement !== selectedFirst) {
+        drawMeasurement(selectedFirst, hoveredElement, false)
+      }
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        resetSelection()
+        return
+      }
+
+      const targetEl = selectedSecond || selectedFirst
+      if (!targetEl) return
+      const step = e.shiftKey ? 10 : 1
+      let handled = true
+
+      if (e.key === 'ArrowUp') {
+        applySpacingNudge(targetEl, 'margin', 'top', -step)
+      } else if (e.key === 'ArrowDown') {
+        applySpacingNudge(targetEl, 'margin', 'bottom', step)
+      } else if (e.key === 'ArrowLeft') {
+        applySpacingNudge(targetEl, 'margin', 'left', -step)
+      } else if (e.key === 'ArrowRight') {
+        applySpacingNudge(targetEl, 'margin', 'right', step)
+      } else {
+        handled = false
+      }
+
+      if (handled) {
+        e.preventDefault()
+        refreshActiveView()
+      }
+    }
+
+    let scrollRaf: number | null = null
+    const onScrollOrResize = () => {
+      if (scrollRaf) cancelAnimationFrame(scrollRaf)
+      scrollRaf = requestAnimationFrame(() => {
+        refreshActiveView()
+      })
+    }
+
+    window.addEventListener('click', onClick, true)
+    window.addEventListener('pointermove', onPointerMove, true)
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('scroll', onScrollOrResize, { passive: true })
+    window.addEventListener('resize', onScrollOrResize, { passive: true })
+
+    state.cleanupFns.push(() => {
+      window.removeEventListener('click', onClick, true)
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('scroll', onScrollOrResize)
+      window.removeEventListener('resize', onScrollOrResize)
+      if (scrollRaf) cancelAnimationFrame(scrollRaf)
+      marginContainer.remove()
+    })
+  }
+
+  // ── 5. PADDING ADJUSTER TOOL ────────────────────────────────────────────────
+  else if (tool === 'padding') {
     const boxOverlay = document.createElement('div')
     boxOverlay.style.cssText = `
       position: absolute;
       pointer-events: none;
-      border: 2px solid ${color};
-      background: ${tool === 'margin' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)'};
+      border: 2px solid #ef4444;
+      background: transparent;
       display: none;
     `
     overlayRoot.appendChild(boxOverlay)
+
+    const paddingLayer = document.createElement('div')
+    paddingLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;'
+    overlayRoot.appendChild(paddingLayer)
+
+    const renderPaddingOverlay = (element: HTMLElement, hover = false) => {
+      const rect = element.getBoundingClientRect()
+      const styles = window.getComputedStyle(element)
+      const borderTop = parseFloat(styles.borderTopWidth) || 0
+      const borderRight = parseFloat(styles.borderRightWidth) || 0
+      const borderBottom = parseFloat(styles.borderBottomWidth) || 0
+      const borderLeft = parseFloat(styles.borderLeftWidth) || 0
+      const paddingTop = parseFloat(styles.paddingTop) || 0
+      const paddingRight = parseFloat(styles.paddingRight) || 0
+      const paddingBottom = parseFloat(styles.paddingBottom) || 0
+      const paddingLeft = parseFloat(styles.paddingLeft) || 0
+      const accent = hover ? '#a855f7' : '#ec4899'
+      const stripe = `repeating-linear-gradient(135deg, ${hover ? 'rgba(168,85,247,0.28)' : 'rgba(236,72,153,0.28)'} 0px, ${hover ? 'rgba(168,85,247,0.28)' : 'rgba(236,72,153,0.28)'} 2px, rgba(255,255,255,0.16) 2px, rgba(255,255,255,0.16) 6px)`
+      const side = (top: number, left: number, width: number, height: number, label: string) => {
+        if (width <= 0 || height <= 0) return
+        const region = document.createElement('div')
+        region.style.cssText = `position:absolute;top:${top}px;left:${left}px;width:${width}px;height:${height}px;box-sizing:border-box;background:${stripe};border:1px solid ${accent};pointer-events:none;`
+        const badge = document.createElement('span')
+        badge.style.cssText = `position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:${accent};color:#fff;border-radius:3px;padding:1px 4px;font:700 10px/1 monospace;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.25);`
+        badge.textContent = label
+        region.appendChild(badge)
+        paddingLayer.appendChild(region)
+      }
+
+      paddingLayer.replaceChildren()
+      boxOverlay.style.display = 'block'
+      boxOverlay.style.top = `${rect.top}px`
+      boxOverlay.style.left = `${rect.left}px`
+      boxOverlay.style.width = `${rect.width}px`
+      boxOverlay.style.height = `${rect.height}px`
+      const contentBox = document.createElement('div')
+      contentBox.style.cssText = `position:absolute;top:${rect.top + borderTop + paddingTop}px;left:${rect.left + borderLeft + paddingLeft}px;width:${Math.max(0, rect.width - borderLeft - borderRight - paddingLeft - paddingRight)}px;height:${Math.max(0, rect.height - borderTop - borderBottom - paddingTop - paddingBottom)}px;box-sizing:border-box;border:2px dashed #10b981;background:rgba(16,185,129,0.08);pointer-events:none;`
+      paddingLayer.appendChild(contentBox)
+      side(rect.top + borderTop, rect.left + borderLeft, rect.width - borderLeft - borderRight, paddingTop, `T ${Math.round(paddingTop)}px`)
+      side(rect.top + rect.height - borderBottom - paddingBottom, rect.left + borderLeft, rect.width - borderLeft - borderRight, paddingBottom, `B ${Math.round(paddingBottom)}px`)
+      side(rect.top + borderTop + paddingTop, rect.left + borderLeft, paddingLeft, rect.height - borderTop - borderBottom - paddingTop - paddingBottom, `L ${Math.round(paddingLeft)}px`)
+      side(rect.top + borderTop + paddingTop, rect.left + rect.width - borderRight - paddingRight, paddingRight, rect.height - borderTop - borderBottom - paddingTop - paddingBottom, `R ${Math.round(paddingRight)}px`)
+      const summary = document.createElement('div')
+      summary.style.cssText = `position:absolute;top:${rect.top + rect.height / 2}px;left:${rect.left + rect.width / 2}px;transform:translate(-50%,-50%);background:${accent};color:#fff;border:1px solid #fdf2f8;border-radius:4px;padding:3px 6px;font:700 10px monospace;white-space:nowrap;pointer-events:none;box-shadow:0 2px 6px rgba(0,0,0,0.35);`
+      summary.textContent = `Padding ${Math.round(paddingTop)} / ${Math.round(paddingRight)} / ${Math.round(paddingBottom)} / ${Math.round(paddingLeft)}px`
+      paddingLayer.appendChild(summary)
+    }
 
     const onClick = (e: MouseEvent) => {
       e.preventDefault()
@@ -441,54 +988,67 @@ export function setInspectTool(tool: InspectToolType): void {
       if (!target) return
 
       state.selectedElement = target as HTMLElement
-      const rect = state.selectedElement.getBoundingClientRect()
-      boxOverlay.style.display = 'block'
-      boxOverlay.style.top = `${rect.top}px`
-      boxOverlay.style.left = `${rect.left}px`
-      boxOverlay.style.width = `${rect.width}px`
-      boxOverlay.style.height = `${rect.height}px`
+      renderPaddingOverlay(state.selectedElement)
 
       const details = extractElementDetails(state.selectedElement)
-      chrome.runtime.sendMessage({
+      sendEngineMessage({
         type: 'INSPECT_ELEMENT_SELECTED',
         details,
-      }).catch(() => {})
+      })
+    }
+
+    const onPointerMove = (e: PointerEvent) => {
+      const target = getValidTarget(e.target as Element)
+      if (!target || target === state.selectedElement) return
+      renderPaddingOverlay(target as HTMLElement, true)
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        state.selectedElement = null
+        boxOverlay.style.display = 'none'
+        paddingLayer.replaceChildren()
+        return
+      }
       if (!state.selectedElement) return
       const step = e.shiftKey ? 10 : 1
+      const decrease = e.altKey ? -1 : 1
+      const allSides = e.metaKey || e.ctrlKey
       let handled = true
 
-      if (e.key === 'ArrowUp') {
-        applySpacingNudge(state.selectedElement, tool, 'top', -step)
+      if (allSides && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        const delta = (e.key === 'ArrowDown' ? 1 : -1) * step * decrease
+        ;(['top', 'right', 'bottom', 'left'] as const).forEach(side => {
+          applySpacingNudge(state.selectedElement as HTMLElement, 'padding', side, delta)
+        })
+      } else if (e.key === 'ArrowUp') {
+        applySpacingNudge(state.selectedElement, 'padding', 'top', -step * decrease)
       } else if (e.key === 'ArrowDown') {
-        applySpacingNudge(state.selectedElement, tool, 'bottom', step)
+        applySpacingNudge(state.selectedElement, 'padding', 'bottom', step * decrease)
       } else if (e.key === 'ArrowLeft') {
-        applySpacingNudge(state.selectedElement, tool, 'left', -step)
+        applySpacingNudge(state.selectedElement, 'padding', 'left', -step * decrease)
       } else if (e.key === 'ArrowRight') {
-        applySpacingNudge(state.selectedElement, tool, 'right', step)
+        applySpacingNudge(state.selectedElement, 'padding', 'right', step * decrease)
       } else {
         handled = false
       }
 
       if (handled) {
         e.preventDefault()
-        const rect = state.selectedElement.getBoundingClientRect()
-        boxOverlay.style.top = `${rect.top}px`
-        boxOverlay.style.left = `${rect.left}px`
-        boxOverlay.style.width = `${rect.width}px`
-        boxOverlay.style.height = `${rect.height}px`
+        renderPaddingOverlay(state.selectedElement)
       }
     }
 
+    window.addEventListener('pointermove', onPointerMove, true)
     window.addEventListener('click', onClick, true)
     window.addEventListener('keydown', onKeyDown, true)
 
     state.cleanupFns.push(() => {
       window.removeEventListener('click', onClick, true)
       window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('pointermove', onPointerMove, true)
       boxOverlay.remove()
+      paddingLayer.remove()
     })
   }
 
@@ -596,10 +1156,10 @@ export function setInspectTool(tool: InspectToolType): void {
       }
     })
 
-    chrome.runtime.sendMessage({
+    sendEngineMessage({
       type: 'A11Y_ISSUES_FOUND',
       count: issueCount,
-    }).catch(() => {})
+    })
 
     state.cleanupFns.push(() => {
       issuesContainer.remove()
@@ -656,6 +1216,11 @@ function applySpacingNudge(el: HTMLElement, type: 'margin' | 'padding', dir: 'to
   const current = parseInt(window.getComputedStyle(el)[prop], 10) || 0
   const updated = Math.max(0, current + delta)
   el.style[prop] = `${updated}px`
+}
+
+function sendEngineMessage(message: Record<string, unknown>) {
+  const runtime = typeof chrome !== 'undefined' ? chrome.runtime : undefined
+  runtime?.sendMessage(message).catch(() => {})
 }
 
 function createA11yBadge(target: Element, issue: string, container: HTMLElement) {
