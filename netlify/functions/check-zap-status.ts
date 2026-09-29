@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { getDb, getFieldValue, jsonResponse } from './_shared/firestore'
+import { refreshAuditJobStatus } from './_shared/audit-status'
 import axios from 'axios'
 
 function getZapUrl(): string {
@@ -104,6 +105,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         status: 'completed',
       },
     })
+    await refreshAuditJobStatus(db, jobId)
 
     // Auto-create security bugs
     if (highAlerts > 0) {
@@ -163,6 +165,11 @@ export const handler: Handler = async (event: HandlerEvent) => {
     return jsonResponse(200, { status: 'completed', progress: 100, highAlerts, mediumAlerts, lowAlerts }, origin)
   } catch (err: any) {
     console.error('check-zap-status error:', err)
+    await jobRef.update({
+      'summaries.security.status': 'failed',
+      errors: fv.arrayUnion({ bot: 'security', message: err.message, retriesLeft: 1 }),
+    }).catch(() => {})
+    await refreshAuditJobStatus(db, jobId).catch(() => {})
     return jsonResponse(200, { status: 'error', error: err.message, progress: 0 }, origin)
   }
 }

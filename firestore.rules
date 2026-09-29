@@ -26,6 +26,10 @@ service cloud.firestore {
         resource.data.ownerId == request.auth.uid || 
         resource.data.members[request.auth.uid] in ['owner', 'admin']
       );
+
+      match /pages/{pageId} {
+        allow read, write: if isProjectMember(projectId);
+      }
     }
     
     match /audit_jobs/{jobId} {

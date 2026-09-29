@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { getDb, getFieldValue, jsonResponse } from './_shared/firestore'
+import { refreshAuditJobStatus } from './_shared/audit-status'
 import axios from 'axios'
 
 // ZAP API base URL — set via Netlify env var pointing to your self-hosted ZAP instance
@@ -51,6 +52,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         },
         errors: fv.arrayUnion({ bot: 'security', message: `ZAP unavailable: ${err.message}`, retriesLeft: 1 }),
       })
+      await refreshAuditJobStatus(db, jobId).catch(() => {})
       return jsonResponse(503, { error: 'ZAP API not reachable', details: err.message }, origin)
     }
 
@@ -89,6 +91,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       'summaries.security.status': 'failed',
       errors: fv.arrayUnion({ bot: 'security', message: err.message, retriesLeft: 1 }),
     }).catch(() => {})
+    await refreshAuditJobStatus(db, jobId).catch(() => {})
     return jsonResponse(500, { error: err.message }, origin)
   }
 }

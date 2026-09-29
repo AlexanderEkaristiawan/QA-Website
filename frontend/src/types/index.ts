@@ -26,6 +26,7 @@ export interface Project {
   titleLengthRange?: { min: number; max: number }        // default { min: 30, max: 65 }
   descriptionLengthRange?: { min: number; max: number }  // default { min: 120, max: 320 }
   extensionApiToken?: string           // project-scoped, hashed, short-lived
+  customPages?: ProjectPage[]          // tracked pages for Page Audits
   // Legacy — some older docs still have userId
   userId?: string
 }
@@ -136,6 +137,47 @@ export interface PageResult {
   headerCounts?: { h1: number; h2: number; h3: number; h4: number; h5: number; h6: number }
   links?: string[]
   timestamp?: string
+}
+
+// === Tracked Project Pages (Page Audits View) ===
+export interface ProjectPage {
+  id: string
+  projectId: string
+  url: string
+  path: string
+  title?: string
+  source?: 'manual' | 'crawled' | 'root'
+  statusCode?: number
+  // SEO Metrics & Findings
+  seoScore?: number | null
+  seoStatus?: 'good' | 'warning' | 'error' | 'not-audited'
+  seoAuditedAt?: FireTimestamp | Date | string | null
+  metaDescription?: string
+  titleLength?: number
+  descriptionLength?: number
+  h1Count?: number
+  missingAltCount?: number
+  brokenLinksCount?: number
+  canonicalUrl?: string | null
+  robotsMeta?: string | null
+  hasOpenGraph?: boolean
+  issues?: SEOIssue[]
+  // PageSpeed / Performance Results
+  pageSpeedScores?: {
+    performance: number | null
+    accessibility: number | null
+    bestPractices: number | null
+    seo: number | null
+  } | null
+  pageSpeedMetrics?: {
+    fcp: number
+    lcp: number
+    cls: number
+    speedIndex?: number
+    tti?: number
+  } | null
+  pageSpeedAuditedAt?: FireTimestamp | Date | string | null
+  createdAt?: FireTimestamp | Date | string
 }
 
 // === Extension Page Metrics (scraped by content script) ===

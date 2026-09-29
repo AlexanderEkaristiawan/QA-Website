@@ -23,6 +23,8 @@ const showModeModal = ref(false)
 const showSettingsModal = ref(false)
 const zapPolling = ref(false)
 const selectedCrawlMode = ref<CrawlMode>('server')
+const startingFeature = ref<'seo' | 'security' | 'performance' | null>(null)
+const deletingHistory = ref(false)
 
 // Extension token states
 const generatedToken = ref<string | null>(null)
@@ -122,20 +124,38 @@ async function triggerAudit() {
   if (!project.value || !authStore.currentUser.value) return
   showModeModal.value = false
 
-  const jobId = await startAudit(project.value.id, authStore.currentUser.value.uid, selectedCrawlMode.value)
+  const jobId = await startAudit(project.value.id, authStore.currentUser.value.uid, selectedCrawlMode.value, 'seo')
   if (!jobId) {
     alert(auditError.value || 'Failed to start audit')
     return
   }
 
-  // Start ZAP polling immediately
-  zapPolling.value = true
-  stopPoll = startZapPolling(
-    jobId,
-    project.value.id,
-    () => { zapPolling.value = false },
-    (msg) => { zapPolling.value = false; console.error('ZAP error:', msg) }
-  )
+}
+
+async function triggerFeatureAudit(feature: 'security' | 'performance') {
+  if (!project.value || !authStore.currentUser.value || startingFeature.value) return
+  if (!project.value.ownershipVerified) {
+    alert('Please verify domain ownership in project settings before running an audit.')
+    return
+  }
+
+  startingFeature.value = feature
+  const jobId = await startAudit(project.value.id, authStore.currentUser.value.uid, 'server', feature)
+  startingFeature.value = null
+  if (!jobId) {
+    alert(auditError.value || 'Failed to start audit')
+    return
+  }
+
+  if (feature === 'security') {
+    zapPolling.value = true
+    stopPoll = startZapPolling(
+      jobId,
+      project.value.id,
+      () => { zapPolling.value = false },
+      (msg) => { zapPolling.value = false; console.error('ZAP error:', msg) }
+    )
+  }
 }
 
 async function handleGenerateToken() {
@@ -175,10 +195,16 @@ async function saveSettings() {
   }
 }
 
-function getScoreColor(score: number): string {
+function getScoreColor(score: number | null): string {
+  if (score === null) return '#9ca3af'
   if (score >= 90) return '#22c55e'
   if (score >= 50) return '#f59e0b'
   return '#ef4444'
+}
+
+function getPerformanceScore(key: string): number | null {
+  if (recentResult.value?.summaries.performance.status !== 'completed') return null
+  return (recentResult.value.summaries.performance as unknown as Record<string, number>)[key] ?? null
 }
 
 function getStatusDot(status: string): string {
@@ -208,6 +234,20 @@ function getStatusLabel(status: string): string {
 function viewAuditDetails(auditId: string) {
   router.push(`/projects/${project.value?.id}/audit/${auditId}`)
 }
+
+async function deleteAllAuditHistory() {
+  if (!project.value || deletingHistory.value || auditJobs.value.length === 0) return
+  if (!window.confirm(`Delete all ${auditJobs.value.length} audit records for this project? This cannot be undone.`)) return
+
+  deletingHistory.value = true
+  try {
+    await auditStore.deleteAuditHistory(project.value.id)
+  } catch (err: any) {
+    alert(`Failed to delete audit history: ${err.message || 'Unknown error'}`)
+  } finally {
+    deletingHistory.value = false
+  }
+}
 </script>
 
 <template>
@@ -228,11 +268,6 @@ function viewAuditDetails(auditId: string) {
     <!-- Header -->
     <div class="mb-8 flex items-start justify-between flex-wrap gap-4">
       <div>
-        <div class="flex items-center gap-2 text-sm text-gray-400 mb-1">
-          <router-link to="/projects" class="hover:text-indigo-500 transition-colors">Projects</router-link>
-          <span>/</span>
-          <span class="text-gray-600 font-medium">{{ project.name }}</span>
-        </div>
         <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
         <div class="mt-1 flex items-center gap-2">
           <p class="text-sm text-gray-500">{{ project.targetUrl }}</p>
@@ -256,12 +291,29 @@ function viewAuditDetails(auditId: string) {
         <button
           @click="openAuditModal"
           class="btn-primary"
-          :disabled="starting || !project.ownershipVerified"
+          :disabled="starting || startingFeature !== null || !project.ownershipVerified"
           :title="!project.ownershipVerified ? 'Verify domain ownership first' : ''"
-          id="run-audit-btn"
         >
           <span v-if="starting" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-          {{ starting ? 'Starting Audit...' : '▶ Run Audit' }}
+          {{ starting ? 'Starting SEO...' : '🔍 SEO Audit' }}
+        </button>
+        <button
+          @click="triggerFeatureAudit('security')"
+          class="btn-secondary"
+          :disabled="starting || startingFeature !== null || !project.ownershipVerified"
+          :title="!project.ownershipVerified ? 'Verify domain ownership first' : ''"
+        >
+          <span v-if="startingFeature === 'security'" class="h-4 w-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></span>
+          {{ startingFeature === 'security' ? 'Starting ZAP...' : '🛡️ OWASP ZAP' }}
+        </button>
+        <button
+          @click="triggerFeatureAudit('performance')"
+          class="btn-secondary"
+          :disabled="starting || startingFeature !== null || !project.ownershipVerified"
+          :title="!project.ownershipVerified ? 'Verify domain ownership first' : ''"
+        >
+          <span v-if="startingFeature === 'performance'" class="h-4 w-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></span>
+          {{ startingFeature === 'performance' ? 'Starting PageSpeed...' : '⚡ PageSpeed' }}
         </button>
       </div>
     </div>
@@ -288,9 +340,9 @@ function viewAuditDetails(auditId: string) {
     <div class="mb-6 flex gap-1 border-b border-gray-200">
       <router-link
         v-for="tab in [
-          { label: '📈 Trends', path: `/projects/${project.id}/history` },
           { label: '🐛 Bug List', path: `/projects/${project.id}/bugs` },
           { label: '✅ Test Cases', path: `/projects/${project.id}/test-cases` },
+          { label: '📑 Page Audits', path: `/projects/${project.id}/pages` },
         ]"
         :key="tab.path"
         :to="tab.path"
@@ -366,8 +418,8 @@ function viewAuditDetails(auditId: string) {
             <div class="flex items-end gap-1 mt-1">
               <span
                 class="text-3xl font-bold"
-                :style="{ color: getScoreColor(recentResult.summaries.performance.performance) }"
-              >{{ recentResult.summaries.performance.performance }}</span>
+                :style="{ color: getScoreColor(getPerformanceScore('performance')) }"
+              >{{ getPerformanceScore('performance') ?? '—' }}</span>
               <span class="text-sm text-gray-400 pb-1">/100</span>
             </div>
             <p class="text-xs text-gray-500">Performance score</p>
@@ -398,17 +450,17 @@ function viewAuditDetails(auditId: string) {
                 <path
                   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
                   fill="none"
-                  :stroke="getScoreColor((recentResult.summaries.performance as any)[scoreEntry.key] ?? 0)"
+                  :stroke="getScoreColor(getPerformanceScore(scoreEntry.key))"
                   stroke-width="3"
-                  :stroke-dasharray="`${(recentResult.summaries.performance as any)[scoreEntry.key] ?? 0}, 100`"
+                  :stroke-dasharray="`${getPerformanceScore(scoreEntry.key) ?? 0}, 100`"
                   stroke-linecap="round"
                 />
               </svg>
               <span
                 class="score-label text-xl font-bold"
-                :style="{ color: getScoreColor((recentResult.summaries.performance as any)[scoreEntry.key] ?? 0) }"
+                :style="{ color: getScoreColor(getPerformanceScore(scoreEntry.key)) }"
               >
-                {{ (recentResult.summaries.performance as any)[scoreEntry.key] ?? 0 }}
+                {{ getPerformanceScore(scoreEntry.key) ?? '—' }}
               </span>
             </div>
             <p class="mt-2 text-xs font-medium text-gray-600">{{ scoreEntry.label }}</p>
@@ -418,8 +470,18 @@ function viewAuditDetails(auditId: string) {
 
       <!-- Audit History -->
       <div class="card">
-        <div class="card-header">
+        <div class="card-header flex items-center justify-between gap-3">
           <h3 class="text-base font-semibold text-gray-900">Audit History</h3>
+          <button
+            type="button"
+            class="btn-danger inline-flex items-center gap-1.5 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="deletingHistory"
+            @click="deleteAllAuditHistory"
+          >
+            <span v-if="deletingHistory" class="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+            <span v-else aria-hidden="true">🗑️</span>
+            {{ deletingHistory ? 'Deleting...' : 'Delete All History' }}
+          </button>
         </div>
         <div class="divide-y divide-gray-100">
           <div
@@ -471,15 +533,17 @@ function viewAuditDetails(auditId: string) {
       <div v-if="!project.ownershipVerified" class="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 text-left max-w-sm mx-auto">
         ⚠ You must verify domain ownership before running an audit. Edit the project to confirm authorization.
       </div>
-      <button
-        @click="openAuditModal"
-        class="btn-primary"
-        :disabled="starting || !project.ownershipVerified"
-        id="first-audit-btn"
-      >
-        <span v-if="starting" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-        {{ starting ? 'Starting...' : '▶ Run First Audit' }}
-      </button>
+      <div class="flex flex-wrap justify-center gap-2">
+        <button @click="openAuditModal" class="btn-primary" :disabled="starting || startingFeature !== null || !project.ownershipVerified">
+          {{ starting ? 'Starting SEO...' : '🔍 SEO Audit' }}
+        </button>
+        <button @click="triggerFeatureAudit('security')" class="btn-secondary" :disabled="starting || startingFeature !== null || !project.ownershipVerified">
+          {{ startingFeature === 'security' ? 'Starting ZAP...' : '🛡️ OWASP ZAP' }}
+        </button>
+        <button @click="triggerFeatureAudit('performance')" class="btn-secondary" :disabled="starting || startingFeature !== null || !project.ownershipVerified">
+          {{ startingFeature === 'performance' ? 'Starting PageSpeed...' : '⚡ PageSpeed' }}
+        </button>
+      </div>
     </div>
 
     <!-- Audit Mode Selector Modal -->

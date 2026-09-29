@@ -278,6 +278,13 @@ async function importSelectedScenarios() {
   <!-- Header & Toolbar -->
   <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div>
+      <router-link
+        :to="`/projects/${route.params.id}`"
+        class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600"
+      >
+        <span aria-hidden="true">←</span>
+        <span>Back to Project Overview</span>
+      </router-link>
       <div class="flex items-center gap-2.5">
         <h1 class="text-2xl font-bold text-gray-900">Test Cases</h1>
         <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">

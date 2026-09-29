@@ -16,7 +16,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
   try {
     const body = JSON.parse(event.body || '{}')
-    const { projectId, userId, crawlMode = 'server' } = body
+    const { projectId, userId, crawlMode = 'server', feature = 'all' } = body
 
     if (!projectId || !userId) {
       return jsonResponse(400, { error: 'projectId and userId required' }, origin)
@@ -24,6 +24,9 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
     if (!['server', 'extension'].includes(crawlMode)) {
       return jsonResponse(400, { error: 'crawlMode must be "server" or "extension"' }, origin)
+    }
+    if (!['all', 'seo', 'security', 'performance'].includes(feature)) {
+      return jsonResponse(400, { error: 'feature must be "all", "seo", "security", or "performance"' }, origin)
     }
 
     const db = getDb()
@@ -57,9 +60,9 @@ export const handler: Handler = async (event: HandlerEvent) => {
       zapScanId: null,
       summaries: {
         // Extension mode: seo summary is populated by crawl-ingest; pending means waiting for extension
-        seo: { totalErrors: 0, pageCount: 0, status: crawlMode === 'extension' ? 'pending' : 'pending' },
-        security: { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [], status: 'pending' },
-        performance: { performance: 0, accessibility: 0, seo: 0, bestPractices: 0, status: 'pending' },
+        seo: { totalErrors: 0, pageCount: 0, status: feature === 'security' || feature === 'performance' ? 'unavailable' : 'pending' },
+        security: { highAlerts: 0, mediumAlerts: 0, lowAlerts: 0, missingHeaders: [], status: feature === 'seo' || feature === 'performance' ? 'unavailable' : 'pending' },
+        performance: { performance: 0, accessibility: 0, seo: 0, bestPractices: 0, status: feature === 'seo' || feature === 'security' ? 'unavailable' : 'pending' },
       },
       errors: [],
     })
@@ -70,7 +73,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     // Fire bots independently based on crawlMode
     const botCalls: Promise<any>[] = []
 
-    if (crawlMode === 'server') {
+    if (crawlMode === 'server' && (feature === 'all' || feature === 'seo')) {
       // Server mode: run preflight, SEO crawler, security, and performance bots
       botCalls.push(
         axios.post(`${baseUrl}/.netlify/functions/preflight-check`, {
@@ -80,25 +83,28 @@ export const handler: Handler = async (event: HandlerEvent) => {
           jobId, projectId, targetUrl: project.targetUrl, authSettings: project.authSettings,
         }).catch(e => console.error('seo bot failed:', e.message)),
       )
-    } else {
+    } else if (feature === 'all' || feature === 'seo') {
       // Extension mode: extension handles crawling — skip preflight and bot-seo
       // Mark SEO as pending (extension will stream results via crawl-ingest)
       console.log(`[start-audit] crawlMode=extension — SEO crawl delegated to Chrome Extension. jobId=${jobId}`)
     }
 
     // Security and performance bots run regardless of crawlMode
-    botCalls.push(
-      axios.post(`${baseUrl}/.netlify/functions/bot-security`, {
+    if (feature === 'all' || feature === 'security') {
+      botCalls.push(axios.post(`${baseUrl}/.netlify/functions/bot-security`, {
         jobId, projectId, targetUrl: project.targetUrl,
         contextName: project.name?.replace(/[^a-zA-Z0-9_-]/g, '_'),
-      }).catch(e => console.error('security bot failed:', e.message)),
-      axios.post(`${baseUrl}/.netlify/functions/bot-performance`, {
+      }).catch(e => console.error('security bot failed:', e.message)))
+    }
+    if (feature === 'all' || feature === 'performance') {
+      botCalls.push(axios.post(`${baseUrl}/.netlify/functions/bot-performance`, {
         jobId, projectId, targetUrl: project.targetUrl,
-      }).catch(e => console.error('perf bot failed:', e.message)),
-    )
+      }).catch(e => console.error('perf bot failed:', e.message)))
+    }
 
-    // Start all bots (fire-and-forget style for background functions)
-    Promise.allSettled(botCalls).then(results => {
+    // Bots update the job asynchronously; return the job ID immediately so
+    // slow PageSpeed or ZAP requests do not time out the start action.
+    void Promise.allSettled(botCalls).then(results => {
       results.forEach((r, i) => {
         if (r.status === 'rejected') console.error(`Bot ${i} error:`, r.reason)
       })
@@ -107,7 +113,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     // Update status to running
     await jobRef.update({ status: 'running' })
 
-    return jsonResponse(200, { jobId, crawlMode }, origin)
+    return jsonResponse(200, { jobId, crawlMode, feature }, origin)
   } catch (err: any) {
     console.error('start-audit error:', err)
     return jsonResponse(500, { error: err.message || 'Internal server error' }, origin)

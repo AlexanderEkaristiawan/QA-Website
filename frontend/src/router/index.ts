@@ -51,6 +51,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/projects/:id/pages',
+      name: 'PageAudits',
+      component: () => import('@/views/PageAuditsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/projects/:id/history',
       name: 'TrendHistory',
       component: () => import('@/views/TrendHistoryView.vue'),

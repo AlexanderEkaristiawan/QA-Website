@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useAuthStore } from '@/composables/useAuth'
 import Sidebar from './Sidebar.vue'
 import Header from './Header.vue'
+import Breadcrumbs from './Breadcrumbs.vue'
 
 const authStore = useAuthStore()
 const sidebarCollapsed = ref(false)
@@ -38,6 +39,7 @@ function closeMobileSidebar() {
 
       <!-- Page Content -->
       <main class="min-w-0 flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-6">
+        <Breadcrumbs />
         <router-view />
       </main>
     </div>

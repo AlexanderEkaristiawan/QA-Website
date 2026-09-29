@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { getDb, getFieldValue, jsonResponse } from './_shared/firestore'
+import { refreshAuditJobStatus } from './_shared/audit-status'
 import axios from 'axios'
 import * as https from 'https'
 import * as http from 'http'
@@ -172,7 +173,11 @@ export const handler: Handler = async (event: HandlerEvent) => {
       visited.add(url)
 
       const path = new URL(url).pathname
-      const allowed = await isAllowedByRobots(targetUrl, path)
+      // Always inspect the requested start page so a robots rule cannot make
+      // an audit look like it completed without crawling anything. Discovered
+      // links continue to respect robots.txt.
+      const isStartPage = crawledPages.length === 0
+      const allowed = isStartPage || await isAllowedByRobots(targetUrl, path)
       if (!allowed) continue
 
       await sleep(REQUEST_DELAY_MS)
@@ -217,10 +222,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
         status: 'completed',
       },
     })
+    await refreshAuditJobStatus(db, jobId)
 
     // Auto-create bug entries for critical SEO issues
     if (totalIssues > 0) {
       const bugRef = db.collection('bug_list').doc()
+      const bugBatch = db.batch()
       // Get next short ID via transaction
       const projectRef = db.collection('projects').doc(projectId)
       let shortId = ''
@@ -230,7 +237,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         shortId = `QAS-${counter}`
         tx.update(projectRef, { bugCounter: counter })
       })
-      batch.set(bugRef, {
+      bugBatch.set(bugRef, {
         projectId,
         shortId,
         title: `${totalIssues} SEO Issues Found across ${crawledPages.length} pages`,
@@ -246,7 +253,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
         createdAt: fv.serverTimestamp(),
         lastEditedTime: fv.serverTimestamp(),
       })
-      await batch.commit()
+      await bugBatch.commit()
     }
 
     return jsonResponse(200, { pageCount: crawledPages.length, totalErrors: totalIssues }, origin)
@@ -256,6 +263,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       'summaries.seo.status': 'failed',
       errors: fv.arrayUnion({ bot: 'seo', message: err.message, retriesLeft: 1 }),
     }).catch(() => {})
+    await refreshAuditJobStatus(db, jobId).catch(() => {})
     return jsonResponse(500, { error: err.message }, origin)
   }
 }

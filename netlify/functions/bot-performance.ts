@@ -1,5 +1,6 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
 import { getDb, getFieldValue, jsonResponse } from './_shared/firestore'
+import { refreshAuditJobStatus } from './_shared/audit-status'
 import axios from 'axios'
 
 interface PageSpeedCategory {
@@ -64,6 +65,14 @@ export const handler: Handler = async (event: HandlerEvent) => {
     const response = await axios.get<PageSpeedResponse>(url, { timeout: 30000 })
     const data = response.data
     const scoreCategories = data.lighthouseResult?.categories ?? data.categories
+    if (
+      !scoreCategories?.performance ||
+      !scoreCategories.accessibility ||
+      !scoreCategories['best-practices'] ||
+      !scoreCategories.seo
+    ) {
+      throw new Error('PageSpeed response did not include all Lighthouse score categories')
+    }
 
     const performanceSummary = {
       performance: toScore(scoreCategories?.performance),
@@ -90,6 +99,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     })
 
     await jobRef.update({ 'summaries.performance': performanceSummary })
+    await refreshAuditJobStatus(db, jobId)
 
     // Auto-create bug if performance is poor
     if (performanceSummary.performance < 50 || performanceSummary.accessibility < 70) {
@@ -126,6 +136,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       'summaries.performance.status': 'failed',
       errors: fv.arrayUnion({ bot: 'performance', message: err.message, retriesLeft: 1 }),
     }).catch(() => {})
+    await refreshAuditJobStatus(db, jobId).catch(() => {})
     return jsonResponse(500, { error: err.message }, origin)
   }
 }

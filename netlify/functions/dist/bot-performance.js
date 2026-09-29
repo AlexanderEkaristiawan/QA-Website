@@ -40,6 +40,12 @@ const handler = async (event) => {
         const response = await axios_1.default.get(url, { timeout: 30000 });
         const data = response.data;
         const scoreCategories = data.lighthouseResult?.categories ?? data.categories;
+        if (!scoreCategories?.performance ||
+            !scoreCategories.accessibility ||
+            !scoreCategories['best-practices'] ||
+            !scoreCategories.seo) {
+            throw new Error('PageSpeed response did not include all Lighthouse score categories');
+        }
         const performanceSummary = {
             performance: toScore(scoreCategories?.performance),
             accessibility: toScore(scoreCategories?.accessibility),

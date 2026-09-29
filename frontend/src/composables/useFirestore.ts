@@ -27,6 +27,7 @@ import type {
   Notification,
   TestRun,
   MemberRole,
+  ProjectPage,
 } from '@/types'
 
 function colRef(path: string) {
@@ -179,6 +180,23 @@ export function useAuditStore() {
     return snap.docs.map(d => d.data())
   }
 
+  async function deleteAuditHistory(projectId: string): Promise<void> {
+    const jobs = await getAuditJobs(projectId)
+    const subcollections = ['pages', 'vulnerabilities', 'performance_metrics']
+
+    for (const job of jobs) {
+      for (const subcollection of subcollections) {
+        const snapshot = await getDocs(colRef(`audit_jobs/${job.id}/${subcollection}`))
+        for (let index = 0; index < snapshot.docs.length; index += 450) {
+          const batch = writeBatch(db)
+          snapshot.docs.slice(index, index + 450).forEach(item => batch.delete(item.ref))
+          await batch.commit()
+        }
+      }
+      await deleteDoc(docRef(`audit_jobs/${job.id}`))
+    }
+  }
+
   return {
     subscribeAuditJobs,
     getAuditJobs,
@@ -186,6 +204,7 @@ export function useAuditStore() {
     getAuditPages,
     getVulnerabilities,
     getPerformanceMetrics,
+    deleteAuditHistory,
   }
 }
 
@@ -424,4 +443,97 @@ export function useNotificationStore() {
   }
 
   return { subscribeNotifications, markAsRead, markAllAsRead }
+}
+
+// === Project Pages (Page Audits View) ===
+export function usePageStore() {
+  function subscribeProjectPages(projectId: string, callback: (pages: ProjectPage[]) => void) {
+    const projectDoc = docRef(`projects/${projectId}`)
+    return onSnapshot(
+      projectDoc,
+      snap => {
+        if (!snap.exists()) {
+          callback([])
+          return
+        }
+        const data = snap.data()
+        const pages = (data?.customPages || []) as ProjectPage[]
+        callback(pages)
+      },
+      err => {
+        console.warn('Project document subscription error:', err.message)
+        callback([])
+      }
+    )
+  }
+
+  async function getProjectPages(projectId: string): Promise<ProjectPage[]> {
+    try {
+      const snap = await getDoc(docRef(`projects/${projectId}`))
+      if (!snap.exists()) return []
+      return (snap.data()?.customPages || []) as ProjectPage[]
+    } catch (err: any) {
+      console.warn('Failed to load project pages:', err.message)
+      return []
+    }
+  }
+
+  async function saveProjectPages(projectId: string, pages: ProjectPage[]): Promise<void> {
+    await updateDoc(docRef(`projects/${projectId}`), {
+      customPages: pages,
+    })
+  }
+
+  async function addProjectPage(projectId: string, page: Omit<ProjectPage, 'id'>): Promise<string> {
+    const existing = await getProjectPages(projectId)
+    const newId = `page_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const newPage: ProjectPage = {
+      id: newId,
+      ...page,
+      createdAt: new Date().toISOString(),
+    }
+    await saveProjectPages(projectId, [newPage, ...existing])
+    return newId
+  }
+
+  async function updateProjectPage(projectId: string, pageId: string, data: Partial<ProjectPage>): Promise<void> {
+    const existing = await getProjectPages(projectId)
+    const updated = existing.map(p => (p.id === pageId ? { ...p, ...data } : p))
+    await saveProjectPages(projectId, updated)
+  }
+
+  async function deleteProjectPage(projectId: string, pageId: string): Promise<void> {
+    const existing = await getProjectPages(projectId)
+    const filtered = existing.filter(p => p.id !== pageId)
+    await saveProjectPages(projectId, filtered)
+  }
+
+  async function batchAddProjectPages(projectId: string, pages: Array<Omit<ProjectPage, 'id'>>): Promise<void> {
+    const existing = await getProjectPages(projectId)
+    const existingUrls = new Set(existing.map(p => p.url.toLowerCase()))
+    const newItems: ProjectPage[] = []
+
+    for (const p of pages) {
+      if (!existingUrls.has(p.url.toLowerCase())) {
+        existingUrls.add(p.url.toLowerCase())
+        newItems.push({
+          id: `page_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          ...p,
+          createdAt: new Date().toISOString(),
+        })
+      }
+    }
+
+    await saveProjectPages(projectId, [...existing, ...newItems])
+  }
+
+  return {
+    subscribeProjectPages,
+    getProjectPages,
+    saveProjectPages,
+    addProjectPage,
+    updateProjectPage,
+    deleteProjectPage,
+    batchAddProjectPages,
+  }
 }

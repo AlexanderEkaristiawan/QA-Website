@@ -256,6 +256,13 @@ function openLightbox(urls: string[], index: number) {
   <!-- Header -->
   <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
     <div>
+      <router-link
+        :to="`/projects/${route.params.id}`"
+        class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600"
+      >
+        <span aria-hidden="true">←</span>
+        <span>Back to Project Overview</span>
+      </router-link>
       <h1 class="text-2xl font-bold text-gray-900">🐛 Bug List</h1>
       <p class="mt-1 text-sm text-gray-500">
         {{ bugs.length }} total bugs
@@ -274,43 +281,29 @@ function openLightbox(urls: string[], index: number) {
   </div>
 
   <!-- Filters -->
-  <div class="mb-5 flex flex-wrap gap-3">
-    <div class="flex items-center gap-1">
-      <span class="text-xs text-gray-500 mr-1">Status:</span>
-      <button
-        v-for="s in ['All', ...BUG_STATUSES]"
-        :key="s"
-        @click="filterStatus = s as typeof filterStatus"
-        class="px-3 py-1 text-xs rounded-full border transition-all"
-        :class="filterStatus === s
-          ? 'bg-indigo-600 text-white border-indigo-600'
-          : 'border-gray-200 text-gray-600 hover:border-gray-400'"
-      >{{ s }}</button>
-    </div>
-    <div class="flex items-center gap-1">
-      <span class="text-xs text-gray-500 mr-1">Severity:</span>
-      <button
-        v-for="sev in ['All', ...BUG_SEVERITIES]"
-        :key="sev"
-        @click="filterSeverity = sev as typeof filterSeverity"
-        class="px-3 py-1 text-xs rounded-full border transition-all"
-        :class="filterSeverity === sev
-          ? 'bg-indigo-600 text-white border-indigo-600'
-          : 'border-gray-200 text-gray-600 hover:border-gray-400'"
-      >{{ sev }}</button>
-    </div>
-    <div class="flex items-center gap-1">
-      <span class="text-xs text-gray-500 mr-1">Source:</span>
-      <button
-        v-for="src in SOURCES"
-        :key="src"
-        @click="filterSource = src"
-        class="px-3 py-1 text-xs rounded-full border transition-all"
-        :class="filterSource === src
-          ? 'bg-indigo-600 text-white border-indigo-600'
-          : 'border-gray-200 text-gray-600 hover:border-gray-400'"
-      >{{ src }}</button>
-    </div>
+  <div class="mb-5 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm sm:grid-cols-3">
+    <label class="flex items-center gap-2 text-xs font-medium text-gray-600">
+      <span class="w-16 shrink-0">Status</span>
+      <select v-model="filterStatus" class="input min-w-0 flex-1 text-xs py-1.5">
+        <option value="All">All statuses</option>
+        <option v-for="status in BUG_STATUSES" :key="status" :value="status">{{ status }}</option>
+      </select>
+    </label>
+    <label class="flex items-center gap-2 text-xs font-medium text-gray-600">
+      <span class="w-16 shrink-0">Severity</span>
+      <select v-model="filterSeverity" class="input min-w-0 flex-1 text-xs py-1.5">
+        <option value="All">All severities</option>
+        <option v-for="severity in BUG_SEVERITIES" :key="severity" :value="severity">{{ severity }}</option>
+      </select>
+    </label>
+    <label class="flex items-center gap-2 text-xs font-medium text-gray-600">
+      <span class="w-16 shrink-0">Source</span>
+      <select v-model="filterSource" class="input min-w-0 flex-1 text-xs py-1.5">
+        <option v-for="source in SOURCES" :key="source" :value="source">
+          {{ source === 'All' ? 'All sources' : source }}
+        </option>
+      </select>
+    </label>
   </div>
 
   <div v-if="filteredBugs.length" class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">

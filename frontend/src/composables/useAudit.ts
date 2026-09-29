@@ -34,7 +34,8 @@ export function useAudit() {
   async function startAudit(
     projectId: string,
     userId: string,
-    crawlMode: CrawlMode = 'server'
+    crawlMode: CrawlMode = 'server',
+    feature: 'all' | 'seo' | 'security' | 'performance' = 'all'
   ): Promise<string | null> {
     starting.value = true
     error.value = null
@@ -43,10 +44,16 @@ export function useAudit() {
       const response = await fetch(`${NETLIFY_BASE}/start-audit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, userId, crawlMode }),
+        body: JSON.stringify({ projectId, userId, crawlMode, feature }),
       })
 
-      const data = await response.json()
+      const responseText = await response.text()
+      let data: { jobId?: string; error?: string } = {}
+      try {
+        data = JSON.parse(responseText)
+      } catch {
+        throw new Error(responseText || `HTTP ${response.status}`)
+      }
 
       if (!response.ok) {
         throw new Error(data.error || `HTTP ${response.status}`)
