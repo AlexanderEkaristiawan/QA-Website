@@ -64,6 +64,8 @@ const lightbox = ref<{ urls: string[]; index: number } | null>(null)
 const filterStatus = ref<BugItem['status'] | 'All'>('All')
 const filterSeverity = ref<BugItem['severity'] | 'All'>('All')
 const filterSource = ref<'All' | 'SEO' | 'SECURITY' | 'PERFORMANCE' | 'MANUAL'>('All')
+const selectedBugIds = ref<Set<string>>(new Set())
+const deletingBugs = ref(false)
 let unsubscribeBugs: (() => void) | null = null
 let unsubscribeComments: (() => void) | null = null
 
@@ -77,6 +79,11 @@ const filteredBugs = computed(() => {
     return true
   })
 })
+
+const selectedCount = computed(() => selectedBugIds.value.size)
+const allFilteredSelected = computed(() =>
+  filteredBugs.value.length > 0 && filteredBugs.value.every(bug => selectedBugIds.value.has(bug.id))
+)
 
 const statusCounts = computed(() => {
   const counts: Record<string, number> = {}
@@ -94,6 +101,10 @@ onMounted(() => {
     projectId.value,
     (data) => {
       bugs.value = data
+      const availableIds = new Set(data.map(bug => bug.id))
+      selectedBugIds.value = new Set(
+        [...selectedBugIds.value].filter(id => availableIds.has(id))
+      )
       loading.value = false
       if (selectedBug.value) {
         const latest = data.find(bug => bug.id === selectedBug.value?.id)
@@ -135,6 +146,39 @@ function onBugCreated(id: string) {
   showCreateForm.value = false
   const created = bugs.value.find(bug => bug.id === id)
   if (created) openBug(created)
+}
+
+function toggleBugSelection(id: string) {
+  const next = new Set(selectedBugIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedBugIds.value = next
+}
+
+function toggleAllFiltered() {
+  const next = new Set(selectedBugIds.value)
+  if (allFilteredSelected.value) {
+    filteredBugs.value.forEach(bug => next.delete(bug.id))
+  } else {
+    filteredBugs.value.forEach(bug => next.add(bug.id))
+  }
+  selectedBugIds.value = next
+}
+
+async function deleteSelectedBugs() {
+  const ids = [...selectedBugIds.value]
+  if (!ids.length || deletingBugs.value) return
+  const noun = ids.length === 1 ? 'bug' : 'bugs'
+  if (!window.confirm(`Delete ${ids.length} ${noun}? This cannot be undone.`)) return
+
+  deletingBugs.value = true
+  try {
+    await Promise.all(ids.map(id => bugStore.deleteBug(id)))
+    if (selectedBug.value && selectedBugIds.value.has(selectedBug.value.id)) closeBug()
+    selectedBugIds.value = new Set()
+  } finally {
+    deletingBugs.value = false
+  }
 }
 
 async function updateStatus(bug: BugItem, status: BugItem['status']) {
@@ -269,6 +313,31 @@ function openLightbox(urls: string[], index: number) {
     </div>
   </div>
 
+  <div v-if="filteredBugs.length" class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">
+    <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+      <input
+        type="checkbox"
+        :checked="allFilteredSelected"
+        :indeterminate="selectedCount > 0 && !allFilteredSelected"
+        class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+        @change="toggleAllFiltered"
+      />
+      <span>Select all visible bugs</span>
+      <span v-if="selectedCount" class="text-xs text-gray-500">{{ selectedCount }} selected</span>
+    </label>
+    <button
+      v-if="selectedCount"
+      type="button"
+      class="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+      :disabled="deletingBugs"
+      @click="deleteSelectedBugs"
+    >
+      <span v-if="deletingBugs" class="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+      <span v-else>🗑️</span>
+      {{ deletingBugs ? 'Deleting…' : 'Delete all selected' }}
+    </button>
+  </div>
+
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
     <!-- Bug Table -->
     <div class="lg:col-span-2">
@@ -284,7 +353,15 @@ function openLightbox(urls: string[], index: number) {
 
       <div v-else class="card overflow-hidden">
         <!-- Table Header -->
-        <div class="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 px-5 py-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        <div class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-4 px-5 py-3 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          <input
+            type="checkbox"
+            :checked="allFilteredSelected"
+            :indeterminate="selectedCount > 0 && !allFilteredSelected"
+            aria-label="Select all visible bugs"
+            class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+            @change="toggleAllFiltered"
+          />
           <span>ID</span>
           <span>Title</span>
           <span>Source</span>
@@ -297,9 +374,17 @@ function openLightbox(urls: string[], index: number) {
           <div
             v-for="bug in filteredBugs"
             :key="bug.id"
-            class="grid grid-cols-[auto_1fr_auto_auto_auto] gap-4 items-center px-5 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
+            class="grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-4 items-center px-5 py-3.5 hover:bg-gray-50 cursor-pointer transition-colors group"
             @click="openBug(bug)"
           >
+            <input
+              type="checkbox"
+              :checked="selectedBugIds.has(bug.id)"
+              :aria-label="`Select ${bug.shortId}`"
+              class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              @click.stop
+              @change="toggleBugSelection(bug.id)"
+            />
             <!-- Short ID -->
             <span class="text-xs font-mono font-medium text-indigo-500 whitespace-nowrap">{{ bug.shortId }}</span>
 

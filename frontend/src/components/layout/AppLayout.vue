@@ -22,7 +22,7 @@ function closeMobileSidebar() {
 </script>
 
 <template>
-  <div class="flex h-screen overflow-hidden bg-gray-50">
+  <div class="flex h-screen overflow-hidden bg-emerald-50/40">
     <!-- Sidebar -->
     <Sidebar
       :collapsed="sidebarCollapsed"

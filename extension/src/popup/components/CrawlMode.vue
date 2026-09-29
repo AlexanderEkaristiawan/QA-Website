@@ -12,6 +12,7 @@ const pageLimit = ref(25)
 const maxDurationMin = ref(15)
 
 const sessionState = ref<CrawlSession | null>(null)
+const queueLength = ref(0)
 const lastUrl = ref<string | null>(null)
 const authLossUrl = ref<string | null>(null)
 const errorMsg = ref<string | null>(null)
@@ -27,6 +28,7 @@ onMounted(async () => {
   const data = await chrome.storage.local.get('qas_crawl_session')
   if (data.qas_crawl_session) {
     sessionState.value = data.qas_crawl_session
+    queueLength.value = data.qas_crawl_session.queue?.length ?? 0
   }
 
   chrome.runtime.onMessage.addListener(handleMessage)
@@ -43,6 +45,7 @@ function handleMessage(msg: ExtMessage) {
       sessionState.value.status = msg.status
       sessionState.value.errors = msg.errors
     }
+    queueLength.value = msg.queueLength
     if (msg.lastUrl) lastUrl.value = msg.lastUrl
   } else if (msg.type === 'AUTH_LOSS_DETECTED') {
     authLossUrl.value = msg.redirectUrl
@@ -77,42 +80,40 @@ async function startNewCrawl() {
       maxDurationMin: maxDurationMin.value,
     }
 
-    chrome.runtime.sendMessage({
+    const response = await chrome.runtime.sendMessage({
       type: 'START_CRAWL',
       session: sessionInit,
-    } as ExtMessage, () => {
-      sessionState.value = {
-        ...sessionInit,
-        status: 'running',
-        startedAt: Date.now(),
-        queue: [sessionInit.startUrl],
-        visited: [],
-        crawledCount: 0,
-        errors: [],
-      }
-    })
+    } as ExtMessage)
+    if (!response?.ok) throw new Error(response?.error || 'Unable to start crawl')
+    sessionState.value = {
+      ...sessionInit,
+      status: 'running',
+      startedAt: Date.now(),
+      queue: [sessionInit.startUrl],
+      visited: [],
+      crawledCount: 0,
+      errors: [],
+    }
+    queueLength.value = 1
   } catch (err: any) {
     errorMsg.value = `Invalid URL: ${err.message}`
   }
 }
 
-function pauseCrawl() {
-  chrome.runtime.sendMessage({ type: 'PAUSE_CRAWL' } as ExtMessage, () => {
-    if (sessionState.value) sessionState.value.status = 'paused'
-  })
+async function pauseCrawl() {
+  const response = await chrome.runtime.sendMessage({ type: 'PAUSE_CRAWL' } as ExtMessage)
+  if (response?.ok && sessionState.value) sessionState.value.status = 'paused'
 }
 
-function resumeCrawl() {
+async function resumeCrawl() {
   authLossUrl.value = null
-  chrome.runtime.sendMessage({ type: 'RESUME_CRAWL' } as ExtMessage, () => {
-    if (sessionState.value) sessionState.value.status = 'running'
-  })
+  const response = await chrome.runtime.sendMessage({ type: 'RESUME_CRAWL' } as ExtMessage)
+  if (response?.ok && sessionState.value) sessionState.value.status = 'running'
 }
 
-function stopCrawl() {
-  chrome.runtime.sendMessage({ type: 'STOP_CRAWL' } as ExtMessage, () => {
-    if (sessionState.value) sessionState.value.status = 'stopped'
-  })
+async function stopCrawl() {
+  const response = await chrome.runtime.sendMessage({ type: 'STOP_CRAWL' } as ExtMessage)
+  if (response?.ok && sessionState.value) sessionState.value.status = 'stopped'
 }
 </script>
 
@@ -232,7 +233,7 @@ function stopCrawl() {
         </div>
         <div class="bg-gray-50 p-2 rounded border border-gray-100">
           <span class="text-[10px] text-gray-400 block font-semibold">QUEUE REMAINING</span>
-          <span class="text-lg font-extrabold text-gray-800">{{ sessionState.queue?.length ?? 0 }}</span>
+          <span class="text-lg font-extrabold text-gray-800">{{ queueLength }}</span>
           <span class="text-[10px] text-gray-400 block">URLs</span>
         </div>
         <div class="bg-gray-50 p-2 rounded border border-gray-100">

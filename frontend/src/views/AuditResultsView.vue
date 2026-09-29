@@ -241,7 +241,7 @@ function goBack() {
                 <span class="text-gray-400 block">Load Time</span>
                 <span
                   :class="
-                    p.loadTimeMs > 2000
+                    p.loadTimeMs > 3000
                       ? 'text-red-600 font-bold'
                       : 'text-green-600 font-semibold'
                   "

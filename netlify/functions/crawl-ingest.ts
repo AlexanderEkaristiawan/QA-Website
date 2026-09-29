@@ -62,6 +62,12 @@ export const handler: Handler = async (event: HandlerEvent) => {
         errors: [],
       })
       jobId = jobRef.id
+    } else {
+      const jobDoc = await db.collection('audit_jobs').doc(jobId).get()
+      if (!jobDoc.exists) return jsonResponse(404, { error: 'Audit job not found' }, origin)
+      if (jobDoc.data()?.projectId !== projectId) {
+        return jsonResponse(403, { error: 'Audit job does not belong to this project' }, origin)
+      }
     }
 
     // ── Write page doc to sub-collection ─────────────────────────────────────
@@ -97,23 +103,32 @@ export const handler: Handler = async (event: HandlerEvent) => {
       links: Array.isArray(metrics.links) ? metrics.links.slice(0, 100) : [],
     }
 
-    await db.collection('audit_jobs').doc(jobId).collection('pages').add(pageData)
+    const normalizedUrl = normalizePageUrl(String(url))
+    const pageId = createHash('sha256').update(normalizedUrl).digest('hex').slice(0, 40)
+    const pageRef = db.collection('audit_jobs').doc(jobId).collection('pages').doc(pageId)
+    const existingPage = await pageRef.get()
+    const isNewPage = !existingPage.exists
+    await pageRef.set({ ...pageData, url: normalizedUrl }, { merge: true })
 
     // ── Increment SEO summary on the job doc ──────────────────────────────────
-    await db.collection('audit_jobs').doc(jobId).update({
-      'summaries.seo.pageCount': fv.increment(1),
-      'summaries.seo.status': 'running',
-    })
+    if (isNewPage) {
+      await db.collection('audit_jobs').doc(jobId).update({
+        'summaries.seo.pageCount': fv.increment(1),
+        'summaries.seo.status': 'running',
+      })
+    }
 
     // ── Auto-Bug Creation ─────────────────────────────────────────────────────
     // Drafts bugs when broken images detected or load time exceeds threshold
     const projectDoc = await db.collection('projects').doc(projectId).get()
     const projectData = projectDoc.data()!
-    const performanceThresholdMs = projectData.performanceThresholdMs ?? 2000
+    const performanceThresholdMs = projectData.performanceThresholdMs === 2000
+      ? 3000
+      : projectData.performanceThresholdMs ?? 3000
 
     const autoBugs: { title: string; source: string; severity: string; description: string }[] = []
 
-    if ((metrics.brokenImages ?? 0) > 0) {
+    if (isNewPage && (metrics.brokenImages ?? 0) > 0) {
       autoBugs.push({
         title: `[Auto-Draft] ${metrics.brokenImages} Broken Image(s) on ${String(url).slice(0, 80)}`,
         source: 'SEO',
@@ -122,7 +137,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       })
     }
 
-    if ((metrics.loadTimeMs ?? 0) > performanceThresholdMs) {
+    if (isNewPage && (metrics.loadTimeMs ?? 0) > performanceThresholdMs) {
       autoBugs.push({
         title: `[Auto-Draft] Slow Page Load (${Math.round(metrics.loadTimeMs)}ms) on ${String(url).slice(0, 80)}`,
         source: 'PERFORMANCE',
@@ -170,5 +185,16 @@ export const handler: Handler = async (event: HandlerEvent) => {
   } catch (err: any) {
     console.error('crawl-ingest error:', err)
     return jsonResponse(500, { error: err.message || 'Internal server error' }, origin)
+  }
+}
+
+function normalizePageUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    parsed.hash = ''
+    if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '')
+    return parsed.toString()
+  } catch {
+    return rawUrl
   }
 }

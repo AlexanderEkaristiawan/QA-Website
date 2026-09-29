@@ -22,7 +22,7 @@ export interface Project {
   // Extension & Crawl Settings
   crawlPageLimit?: number              // default 25
   crawlMaxDurationMin?: number         // default 15 (extension crawl only)
-  performanceThresholdMs?: number      // default 2000 (auto-bug drafting)
+  performanceThresholdMs?: number      // default 3000 (auto-bug drafting)
   titleLengthRange?: { min: number; max: number }        // default { min: 30, max: 65 }
   descriptionLengthRange?: { min: number; max: number }  // default { min: 120, max: 320 }
   extensionApiToken?: string           // project-scoped, hashed, short-lived

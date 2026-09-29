@@ -10,8 +10,11 @@ import { extractPageMetrics } from '../content/scraper'
 
 const CRAWL_STATE_KEY = 'qas_crawl_session'
 const DELAY_MS = 1000
-const LOGIN_PATTERNS = ['/login', '/signin', '/sign-in', '/auth', '/session/new', 'login.', 'accounts.']
+const LOGIN_PATHS = ['/login', '/signin', '/sign-in', '/auth', '/session/new']
 const securityResponses = new Map<number, SecurityResponseData>()
+let crawlLoopActive = false
+let activeCrawlTabId: number | null = null
+let activeCrawlAbort: AbortController | null = null
 
 // Keep the headers from real page navigations. This is the only place the
 // extension can observe Set-Cookie flags, which are intentionally hidden from page JavaScript.
@@ -50,16 +53,16 @@ if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
 chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) => {
   if (msg.type === 'START_CRAWL') {
     startCrawl(msg.session)
-    sendResponse({ ok: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err: any) => sendResponse({ ok: false, error: err.message }))
   } else if (msg.type === 'PAUSE_CRAWL') {
-    updateStatus('paused')
-    sendResponse({ ok: true })
+    updateStatus('paused').then(() => sendResponse({ ok: true }))
   } else if (msg.type === 'RESUME_CRAWL') {
     resumeCrawl()
-    sendResponse({ ok: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err: any) => sendResponse({ ok: false, error: err.message }))
   } else if (msg.type === 'STOP_CRAWL') {
-    updateStatus('stopped')
-    sendResponse({ ok: true })
+    updateStatus('stopped').then(() => sendResponse({ ok: true }))
   } else if (msg.type === 'GET_SECURITY_HEADERS') {
     getSecurityHeaders(msg.url, msg.tabId)
       .then(sendResponse)
@@ -109,6 +112,12 @@ chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) =>
   }
   return true // Keep channel open for async
 })
+
+chrome.runtime.onStartup.addListener(() => {
+  void resumePersistedCrawl()
+})
+
+void resumePersistedCrawl()
 
 // ── Viewport emulation via Chrome Debugger Protocol ───────────────────────────
 // Mirrors what DevTools' device toolbar does: overrides the tab's CSS viewport
@@ -166,8 +175,13 @@ function equivalentUrl(left: string, right: string): boolean {
 async function startCrawl(
   init: Omit<CrawlSession, 'queue' | 'visited' | 'crawledCount' | 'errors' | 'status' | 'startedAt'>
 ) {
+  const startUrl = normalizeCrawlUrl(init.startUrl)
+  if (!startUrl) throw new Error('Start URL must be an http(s) URL')
+  const parsed = new URL(startUrl)
   const session: CrawlSession = {
     ...init,
+    startUrl,
+    baseDomain: parsed.hostname,
     status: 'running',
     startedAt: Date.now(),
     queue: [init.startUrl],
@@ -176,12 +190,18 @@ async function startCrawl(
     errors: [],
   }
   await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
-  runLoop()
+  void runLoop()
 }
 
 async function resumeCrawl() {
   await updateStatus('running')
-  runLoop()
+  void runLoop()
+}
+
+async function resumePersistedCrawl() {
+  const data = await chrome.storage.local.get(CRAWL_STATE_KEY)
+  const session: CrawlSession | undefined = data[CRAWL_STATE_KEY]
+  if (session?.status === 'running') void runLoop()
 }
 
 async function updateStatus(status: CrawlSession['status']) {
@@ -190,20 +210,35 @@ async function updateStatus(status: CrawlSession['status']) {
   if (session) {
     session.status = status
     await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
+    broadcastProgress(session)
+    if (status === 'stopped') {
+      activeCrawlAbort?.abort()
+      if (activeCrawlTabId !== null) await chrome.tabs.remove(activeCrawlTabId).catch(() => {})
+    }
   }
 }
 
 // ── BFS Crawl Loop ────────────────────────────────────────────────────────────
 async function runLoop() {
+  if (crawlLoopActive) return
+  crawlLoopActive = true
+  try {
+    await runCrawlLoop()
+  } finally {
+    crawlLoopActive = false
+  }
+}
+
+async function runCrawlLoop() {
   let data = await chrome.storage.local.get(CRAWL_STATE_KEY)
   let session: CrawlSession = data[CRAWL_STATE_KEY]
   if (!session) return
 
-  while (
-    session.status === 'running' &&
-    session.queue.length > 0 &&
-    session.crawledCount < session.pageLimit
-  ) {
+  while (true) {
+    data = await chrome.storage.local.get(CRAWL_STATE_KEY)
+    session = data[CRAWL_STATE_KEY]
+    if (!session || session.status !== 'running' || session.queue.length === 0 || session.crawledCount >= session.pageLimit) break
+
     // Check max duration
     const elapsedMin = (Date.now() - session.startedAt) / 60000
     if (elapsedMin > session.maxDurationMin) {
@@ -213,13 +248,15 @@ async function runLoop() {
       break
     }
 
-    const url = session.queue.shift()!
+    const url = normalizeCrawlUrl(session.queue.shift()!)
+    if (!url) continue
     if (session.visited.includes(url)) {
       await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
       continue
     }
 
     session.visited.push(url)
+    await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
 
     try {
       const metrics = await crawlPage(url, session)
@@ -230,10 +267,16 @@ async function runLoop() {
         break
       }
 
-      // Enqueue same-domain links not yet visited
+      data = await chrome.storage.local.get(CRAWL_STATE_KEY)
+      session = data[CRAWL_STATE_KEY]
+      if (!session || session.status !== 'running') break
+
+      // Enqueue normalized same-domain links only.
       const newLinks = (metrics.links ?? [])
-        .filter(l => l.internal && !session.visited.includes(l.href) && !session.queue.includes(l.href))
-        .map(l => l.href)
+        .map(l => normalizeCrawlUrl(l.href))
+        .filter((link): link is string => Boolean(link))
+        .filter(link => isSameDomain(link, session.baseDomain))
+        .filter(link => !session.visited.includes(link) && !session.queue.includes(link))
         .slice(0, 50)
 
       session.queue.push(...newLinks)
@@ -244,8 +287,13 @@ async function runLoop() {
       // Rate limiting
       await sleep(DELAY_MS)
     } catch (err: any) {
-      session.errors.push(`${url}: ${err.message}`)
-      await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
+      data = await chrome.storage.local.get(CRAWL_STATE_KEY)
+      const currentSession: CrawlSession | undefined = data[CRAWL_STATE_KEY]
+      if (currentSession?.status === 'running') {
+        currentSession.errors.push(`${url}: ${err.message}`)
+        await chrome.storage.local.set({ [CRAWL_STATE_KEY]: currentSession })
+        broadcastProgress(currentSession, url)
+      }
     }
 
     // Reload state in case popup sent a control message
@@ -261,6 +309,7 @@ async function runLoop() {
     session.status = 'done'
     await chrome.storage.local.set({ [CRAWL_STATE_KEY]: session })
     broadcastProgress(session)
+    await finalizeCrawl(session)
   }
 }
 
@@ -271,6 +320,8 @@ async function crawlPage(url: string, session: CrawlSession): Promise<PageMetric
   try {
     const tab = await chrome.tabs.create({ url, active: false })
     tabId = tab.id!
+    activeCrawlTabId = tabId
+    activeCrawlAbort = new AbortController()
 
     // Wait for the tab to finish loading (with SPA fallback via polling)
     await waitForTab(tabId)
@@ -296,18 +347,20 @@ async function crawlPage(url: string, session: CrawlSession): Promise<PageMetric
 
     // POST to ingestion endpoint. Direct extension crawls have no job yet;
     // persist the first returned job ID so all following pages join that job.
-    const ingestion = await ingestPage(metrics, session)
+    const ingestion = await ingestPage(metrics, session, activeCrawlAbort.signal)
     if (!session.jobId && ingestion.jobId) session.jobId = ingestion.jobId
     return metrics
   } finally {
     if (tabId !== null) {
       chrome.tabs.remove(tabId).catch(() => {})
+      if (activeCrawlTabId === tabId) activeCrawlTabId = null
+      activeCrawlAbort = null
     }
   }
 }
 
 // ── POST metrics to crawl-ingest Netlify Function ─────────────────────────────
-async function ingestPage(metrics: PageMetrics, session: CrawlSession): Promise<{ jobId?: string }> {
+async function ingestPage(metrics: PageMetrics, session: CrawlSession, signal?: AbortSignal): Promise<{ jobId?: string }> {
   const payload = {
     projectId: session.projectId,
     auditJobId: session.jobId,
@@ -322,6 +375,7 @@ async function ingestPage(metrics: PageMetrics, session: CrawlSession): Promise<
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.apiToken}`,
     },
+    signal,
     body: JSON.stringify(payload),
   })
 
@@ -331,6 +385,18 @@ async function ingestPage(metrics: PageMetrics, session: CrawlSession): Promise<
   }
 
   return res.json().catch(() => ({}))
+}
+
+async function finalizeCrawl(session: CrawlSession): Promise<void> {
+  if (!session.jobId) return
+  await fetch(`${session.apiBaseUrl}/finalize-crawl`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.apiToken}`,
+    },
+    body: JSON.stringify({ projectId: session.projectId, auditJobId: session.jobId }),
+  })
 }
 
 // ── Broadcast progress to popup ───────────────────────────────────────────────
@@ -362,7 +428,33 @@ function waitForTab(tabId: number): Promise<void> {
 }
 
 function isLoginPage(url: string): boolean {
-  return LOGIN_PATTERNS.some(p => url.toLowerCase().includes(p))
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.toLowerCase().replace(/\/+$/, '') || '/'
+    return LOGIN_PATHS.some(pattern => path === pattern || path.startsWith(`${pattern}/`))
+  } catch {
+    return false
+  }
+}
+
+function normalizeCrawlUrl(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    parsed.hash = ''
+    if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '')
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function isSameDomain(url: string, baseDomain: string): boolean {
+  try {
+    return new URL(url).hostname === baseDomain
+  } catch {
+    return false
+  }
 }
 
 function sleep(ms: number): Promise<void> {

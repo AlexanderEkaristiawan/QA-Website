@@ -41,7 +41,7 @@ function copyProjectId() {
 const settingsForm = ref({
   crawlPageLimit: 25,
   crawlMaxDurationMin: 15,
-  performanceThresholdMs: 2000,
+  performanceThresholdMs: 3000,
   titleMin: 30,
   titleMax: 65,
   descMin: 120,
@@ -65,7 +65,9 @@ onMounted(async () => {
       settingsForm.value = {
         crawlPageLimit: project.value.crawlPageLimit ?? 25,
         crawlMaxDurationMin: project.value.crawlMaxDurationMin ?? 15,
-        performanceThresholdMs: project.value.performanceThresholdMs ?? 2000,
+        performanceThresholdMs: project.value.performanceThresholdMs === 2000
+          ? 3000
+          : project.value.performanceThresholdMs ?? 3000,
         titleMin: project.value.titleLengthRange?.min ?? 30,
         titleMax: project.value.titleLengthRange?.max ?? 65,
         descMin: project.value.descriptionLengthRange?.min ?? 120,
