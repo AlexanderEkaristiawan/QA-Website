@@ -28,7 +28,8 @@
     "webRequest",
     "windows",
     "debugger",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "webNavigation"
   ],
   "host_permissions": ["<all_urls>"],
   "declarative_net_request": {

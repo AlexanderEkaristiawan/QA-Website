@@ -107,6 +107,65 @@ const handler = async (event) => {
                 'summaries.seo.status': 'running',
             });
         }
+        // ── Sync to project's tracked customPages (Page Audits table) ────────────
+        try {
+            const projectRef = db.collection('projects').doc(projectId);
+            const projSnap = await projectRef.get();
+            if (projSnap.exists) {
+                const projData = projSnap.data() || {};
+                let customPages = Array.isArray(projData.customPages) ? [...projData.customPages] : [];
+                const existingIdx = customPages.findIndex(p => normalizePageUrl(p.url).toLowerCase() === normalizedUrl.toLowerCase());
+                let pathname = '/';
+                try {
+                    pathname = new URL(normalizedUrl).pathname || '/';
+                }
+                catch { }
+                const seoIssues = [];
+                if (!metrics.title)
+                    seoIssues.push({ type: 'missing-title', description: 'Missing title tag', severity: 'Critical' });
+                if (!metrics.metaDescription)
+                    seoIssues.push({ type: 'missing-meta-description', description: 'Missing meta description', severity: 'Major' });
+                if ((metrics.headerCounts?.h1 ?? 0) === 0)
+                    seoIssues.push({ type: 'missing-h1', description: 'Missing H1 heading', severity: 'Major' });
+                if ((metrics.missingAltCount ?? 0) > 0)
+                    seoIssues.push({ type: 'missing-alt-tags', description: `${metrics.missingAltCount} images missing alt text`, severity: 'Minor' });
+                const seoScore = Math.max(0, 100 - (seoIssues.length * 12));
+                const seoStatus = seoIssues.length === 0 ? 'good' : 'warning';
+                const pageEntry = {
+                    id: existingIdx >= 0 ? customPages[existingIdx].id : `page_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                    projectId,
+                    url: normalizedUrl,
+                    path: pathname,
+                    title: metrics.title || pathname,
+                    source: source || 'crawled',
+                    statusCode: 200,
+                    seoScore,
+                    seoStatus,
+                    issues: seoIssues,
+                    h1Count: metrics.headerCounts?.h1 ?? 0,
+                    missingAltCount: metrics.missingAltCount ?? 0,
+                    titleLength: metrics.titleLength ?? 0,
+                    metaDescription: metrics.metaDescription ?? '',
+                    descriptionLength: metrics.descriptionLength ?? 0,
+                    canonicalUrl: metrics.canonicalUrl ?? null,
+                    robotsMeta: metrics.robotsMeta ?? null,
+                    hasOpenGraph: metrics.hasOpenGraph ?? false,
+                    seoAuditedAt: new Date().toISOString(),
+                    createdAt: existingIdx >= 0 ? customPages[existingIdx].createdAt : new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                };
+                if (existingIdx >= 0) {
+                    customPages[existingIdx] = { ...customPages[existingIdx], ...pageEntry };
+                }
+                else {
+                    customPages = [pageEntry, ...customPages];
+                }
+                await projectRef.update({ customPages });
+            }
+        }
+        catch (syncErr) {
+            console.warn('Could not sync to customPages in crawl-ingest:', syncErr);
+        }
         // ── Auto-Bug Creation ─────────────────────────────────────────────────────
         // Drafts bugs when broken images detected or load time exceeds threshold
         const projectDoc = await db.collection('projects').doc(projectId).get();

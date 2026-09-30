@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const firestore_1 = require("./_shared/firestore");
+const audit_status_1 = require("./_shared/audit-status");
 const axios_1 = __importDefault(require("axios"));
 function toScore(cat) {
     if (!cat || cat.score === null)
@@ -68,6 +69,7 @@ const handler = async (event) => {
             timestamp: fv.serverTimestamp(),
         });
         await jobRef.update({ 'summaries.performance': performanceSummary });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId);
         // Auto-create bug if performance is poor
         if (performanceSummary.performance < 50 || performanceSummary.accessibility < 70) {
             const projectRef = db.collection('projects').doc(projectId);
@@ -103,6 +105,7 @@ const handler = async (event) => {
             'summaries.performance.status': 'failed',
             errors: fv.arrayUnion({ bot: 'performance', message: err.message, retriesLeft: 1 }),
         }).catch(() => { });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId).catch(() => { });
         return (0, firestore_1.jsonResponse)(500, { error: err.message }, origin);
     }
 };

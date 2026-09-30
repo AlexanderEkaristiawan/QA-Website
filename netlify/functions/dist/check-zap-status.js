@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const firestore_1 = require("./_shared/firestore");
+const audit_status_1 = require("./_shared/audit-status");
 const axios_1 = __importDefault(require("axios"));
 function getZapUrl() {
     return process.env.ZAP_API_URL || 'http://localhost:8080';
@@ -92,6 +93,7 @@ const handler = async (event) => {
                 status: 'completed',
             },
         });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId);
         // Auto-create security bugs
         if (highAlerts > 0) {
             const projectRef = db.collection('projects').doc(projectId);
@@ -149,6 +151,11 @@ const handler = async (event) => {
     }
     catch (err) {
         console.error('check-zap-status error:', err);
+        await jobRef.update({
+            'summaries.security.status': 'failed',
+            errors: fv.arrayUnion({ bot: 'security', message: err.message, retriesLeft: 1 }),
+        }).catch(() => { });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId).catch(() => { });
         return (0, firestore_1.jsonResponse)(200, { status: 'error', error: err.message, progress: 0 }, origin);
     }
 };

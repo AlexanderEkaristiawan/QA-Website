@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, useAuditStore, usePageStore } from '@/composables/useFirestore'
 import { usePageAudits } from '@/composables/usePageAudits'
+import { useAuthStore } from '@/composables/useAuth'
+import { useAudit } from '@/composables/useAudit'
 import type { Project, ProjectPage, SEOIssue, PageResult } from '@/types'
 
 const route = useRoute()
@@ -18,6 +20,90 @@ const pages = ref<ProjectPage[]>([])
 const loading = ref(true)
 const searchQuery = ref('')
 const filterStatus = ref<'all' | 'good' | 'issues' | 'has-pagespeed' | 'no-pagespeed'>('all')
+
+const authStore = useAuthStore()
+const { issueExtensionToken } = useAudit()
+
+// Connect Extension Modal State
+const showExtensionModal = ref(false)
+const extensionToken = ref<string>('')
+const generatingToken = ref(false)
+const tokenCopied = ref(false)
+const idCopied = ref(false)
+const urlCopied = ref(false)
+const allConfigCopied = ref(false)
+const tokenError = ref('')
+
+const defaultFunctionsUrl = computed(() => {
+  const configured = import.meta.env.VITE_NETLIFY_FUNCTIONS_URL?.trim()
+  if (configured && !configured.startsWith('/')) return configured.replace(/\/$/, '')
+
+  const path = (configured || '/.netlify/functions').replace(/\/+$/, '')
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    // The extension cannot use Vite's relative proxy path. Point it at Netlify Dev.
+    return `http://localhost:8888${path}`
+  }
+  return `${window.location.origin}${path}`
+})
+
+function openExtensionModal() {
+  showExtensionModal.value = true
+  tokenError.value = ''
+}
+
+async function handleGenerateToken() {
+  const user = authStore.currentUser.value
+  if (!project.value || !user) {
+    tokenError.value = 'User not logged in or project not loaded.'
+    return
+  }
+  generatingToken.value = true
+  tokenError.value = ''
+  try {
+    const rawToken = await issueExtensionToken(project.value.id, user.uid)
+    if (rawToken) {
+      extensionToken.value = rawToken
+      const updated = await projectStore.getProject(projectId)
+      if (updated) project.value = updated
+    } else {
+      tokenError.value = 'Failed to generate token. Make sure you have project permissions.'
+    }
+  } catch (err: any) {
+    tokenError.value = err.message || 'Token generation failed.'
+  } finally {
+    generatingToken.value = false
+  }
+}
+
+async function copyToClipboard(text: string, type: 'url' | 'id' | 'token' | 'all') {
+  try {
+    await navigator.clipboard.writeText(text)
+    if (type === 'url') {
+      urlCopied.value = true
+      setTimeout(() => { urlCopied.value = false }, 2000)
+    } else if (type === 'id') {
+      idCopied.value = true
+      setTimeout(() => { idCopied.value = false }, 2000)
+    } else if (type === 'token') {
+      tokenCopied.value = true
+      setTimeout(() => { tokenCopied.value = false }, 2000)
+    } else if (type === 'all') {
+      allConfigCopied.value = true
+      setTimeout(() => { allConfigCopied.value = false }, 2000)
+    }
+  } catch (err) {
+    console.warn('Clipboard write error:', err)
+  }
+}
+
+function copyAllExtensionConfig() {
+  const payload = {
+    apiBaseUrl: defaultFunctionsUrl.value,
+    projectId: projectId,
+    apiToken: extensionToken.value || '',
+  }
+  void copyToClipboard(JSON.stringify(payload, null, 2), 'all')
+}
 
 // Add Page Modal
 const showAddModal = ref(false)
@@ -314,12 +400,14 @@ async function runPageSpeedForPage(page: ProjectPage) {
       pageSpeedScores: result.pageSpeedScores,
       pageSpeedMetrics: result.pageSpeedMetrics,
       pageSpeedFindings: result.pageSpeedFindings,
+      pageSpeedAuditType: 'pagespeed-insights',
       pageSpeedAuditedAt: new Date(),
     })
     await pageStore.updateProjectPage(projectId, page.id, {
       pageSpeedScores: result.pageSpeedScores,
       pageSpeedMetrics: result.pageSpeedMetrics,
       pageSpeedFindings: result.pageSpeedFindings,
+      pageSpeedAuditType: 'pagespeed-insights',
       pageSpeedAuditedAt: new Date(),
     })
   }
@@ -398,8 +486,8 @@ function getScoreBgBadge(score: number | null | undefined): string {
 
   <div v-else class="space-y-6">
     <!-- Header -->
-    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div>
+    <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div class="min-w-0">
         <div class="flex items-center gap-2.5">
           <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
           <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
@@ -408,21 +496,81 @@ function getScoreBgBadge(score: number | null | undefined): string {
         </div>
         <p class="mt-1 text-sm text-gray-500">
           Track URLs, run on-demand page SEO audits, and benchmark Google PageSpeed performance per page for
-          <strong class="text-gray-700">{{ project.targetUrl }}</strong>
+          <strong class="break-all text-gray-700">{{ project.targetUrl }}</strong>
         </p>
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex items-center gap-2 flex-wrap">
+      <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:justify-end xl:w-auto xl:flex-shrink-0">
+        <button
+          type="button"
+          @click="openExtensionModal"
+          class="btn-secondary w-full text-xs py-2 px-3.5 flex items-center gap-1.5 sm:w-auto"
+        >
+          <span>🔌</span>
+          <span>Connect Extension</span>
+        </button>
         <button
           type="button"
           @click="showAddModal = true"
-          class="btn-primary text-xs py-2 px-3.5 flex items-center gap-1.5"
+          class="btn-primary w-full text-xs py-2 px-3.5 flex items-center gap-1.5 sm:w-auto"
         >
           <span>+</span>
           <span>Add Page</span>
         </button>
       </div>
+    </div>
+
+    <!-- Chrome extension connection setup -->
+    <div
+      v-if="showExtensionModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      @click.self="showExtensionModal = false"
+    >
+      <section class="card w-full max-w-lg p-6 space-y-4 shadow-xl bg-white" aria-labelledby="extension-connection-title">
+        <div class="flex items-start justify-between border-b pb-3">
+          <div>
+            <h2 id="extension-connection-title" class="text-lg font-bold text-gray-900">Connect QA-Suite Companion</h2>
+            <p class="mt-1 text-xs text-gray-500">Use these project-scoped settings in the extension's Set up form.</p>
+          </div>
+          <button type="button" class="text-gray-400 hover:text-gray-700" aria-label="Close" @click="showExtensionModal = false">✕</button>
+        </div>
+
+        <div v-if="tokenError" class="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{{ tokenError }}</div>
+
+        <label class="block space-y-1">
+          <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">Functions URL</span>
+          <div class="flex gap-2">
+            <input class="input min-w-0 flex-1 font-mono text-xs" :value="defaultFunctionsUrl" readonly />
+            <button type="button" class="btn-secondary text-xs" @click="copyToClipboard(defaultFunctionsUrl, 'url')">{{ urlCopied ? 'Copied' : 'Copy' }}</button>
+          </div>
+        </label>
+
+        <label class="block space-y-1">
+          <span class="text-[11px] font-bold uppercase tracking-wide text-gray-500">Project ID</span>
+          <div class="flex gap-2">
+            <input class="input min-w-0 flex-1 font-mono text-xs" :value="projectId" readonly />
+            <button type="button" class="btn-secondary text-xs" @click="copyToClipboard(projectId, 'id')">{{ idCopied ? 'Copied' : 'Copy' }}</button>
+          </div>
+        </label>
+
+        <div class="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div class="text-xs font-semibold text-amber-900">Extension token</div>
+          <p v-if="!extensionToken" class="text-xs leading-relaxed text-amber-800">Generate a token, then paste it into the extension. The token is shown only here and is not saved in readable form on the site.</p>
+          <div v-else class="flex gap-2">
+            <input class="input min-w-0 flex-1 font-mono text-xs" type="password" :value="extensionToken" readonly />
+            <button type="button" class="btn-secondary text-xs" @click="copyToClipboard(extensionToken, 'token')">{{ tokenCopied ? 'Copied' : 'Copy token' }}</button>
+          </div>
+          <button type="button" class="btn-primary text-xs" :disabled="generatingToken" @click="handleGenerateToken">
+            {{ generatingToken ? 'Generating…' : extensionToken ? 'Rotate token' : 'Generate token' }}
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between border-t pt-3">
+          <button type="button" class="btn-secondary text-xs" :disabled="!extensionToken" @click="copyAllExtensionConfig">{{ allConfigCopied ? 'Settings copied' : 'Copy extension settings' }}</button>
+          <button type="button" class="btn-primary text-xs" @click="showExtensionModal = false">Done</button>
+        </div>
+      </section>
     </div>
 
     <!-- Navigation Tabs -->
@@ -482,9 +630,9 @@ function getScoreBgBadge(score: number | null | undefined): string {
     </div>
 
     <!-- Filter & Toolbar -->
-    <div class="card p-3 flex flex-col sm:flex-row items-center justify-between gap-3 bg-white">
-      <div class="flex items-center gap-2 w-full sm:w-auto">
-        <div class="relative flex-1 sm:w-72">
+    <div class="card p-3 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3 bg-white">
+      <div class="flex flex-col sm:flex-row items-stretch gap-2 w-full xl:w-auto xl:flex-1">
+        <div class="relative flex-1 sm:min-w-56 sm:max-w-96">
           <input
             v-model="searchQuery"
             type="text"
@@ -494,7 +642,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
           <span class="absolute left-2.5 top-2 text-xs text-gray-400">🔍</span>
         </div>
 
-        <select v-model="filterStatus" class="input text-xs py-1.5 w-auto">
+        <select v-model="filterStatus" class="input text-xs py-1.5 w-full sm:w-auto sm:max-w-56">
           <option value="all">All Pages ({{ pages.length }})</option>
           <option value="good">Good SEO Only</option>
           <option value="issues">Has SEO Issues</option>
@@ -504,11 +652,11 @@ function getScoreBgBadge(score: number | null | undefined): string {
       </div>
 
       <!-- Batch Actions -->
-      <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full xl:w-auto">
         <button
           type="button"
           @click="runAllSeo"
-          class="btn-secondary text-xs py-1.5 px-2.5 flex items-center gap-1"
+          class="btn-secondary flex-1 whitespace-nowrap text-xs py-1.5 px-2.5 flex items-center gap-1"
           :disabled="batchRunningSeo || pages.length === 0"
           title="Run SEO audit on every page in sequence"
         >
@@ -518,7 +666,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
         <button
           type="button"
           @click="runAllPageSpeed"
-          class="btn-secondary text-xs py-1.5 px-2.5 flex items-center gap-1 text-amber-700 hover:text-amber-800"
+          class="btn-secondary flex-1 whitespace-nowrap text-xs py-1.5 px-2.5 flex items-center gap-1 text-amber-700 hover:text-amber-800"
           :disabled="batchRunningPerf || pages.length === 0"
           title="Run Google PageSpeed on every page in sequence"
         >
@@ -546,15 +694,15 @@ function getScoreBgBadge(score: number | null | undefined): string {
 
     <!-- Pages Table -->
     <div v-else class="card overflow-hidden shadow-sm border border-gray-200">
-      <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 text-left">
+      <div class="audit-table-container overflow-x-auto">
+        <table class="page-audit-table min-w-full divide-y divide-gray-200 text-left">
           <thead class="bg-gray-50/80 text-[11px] font-bold uppercase text-gray-500 tracking-wider">
             <tr>
               <th scope="col" class="py-3 px-4">Page URL &amp; Path</th>
               <th scope="col" class="py-3 px-4">SEO Audit Result</th>
               <th scope="col" class="py-3 px-4 min-w-[240px]">
                 <div class="flex items-center gap-1">
-                  <span>PageSpeed Scores</span>
+                <span>Performance Scores</span>
                 </div>
               </th>
               <th scope="col" class="py-3 px-4 min-w-[170px]">OWASP ZAP</th>
@@ -569,13 +717,19 @@ function getScoreBgBadge(score: number | null | undefined): string {
               class="hover:bg-indigo-50/20 transition-colors"
             >
               <!-- 1. Page Details -->
-              <td class="py-3 px-4 align-top max-w-xs">
+              <td data-label="Page URL &amp; Path" class="py-3 px-4 align-top max-w-xs">
                 <div class="flex items-center gap-2">
                   <span v-if="page.source === 'root'" class="badge badge-neutral text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200">
                     🏠 Home
                   </span>
                   <span v-else-if="page.source === 'manual'" class="badge badge-neutral text-[10px] bg-slate-100 text-slate-700">
                     Manual
+                  </span>
+                  <span v-else-if="page.source === 'extension-record'" class="badge badge-neutral text-[10px] bg-rose-50 text-rose-700 border border-rose-200">
+                    🔴 Recorded
+                  </span>
+                  <span v-else-if="page.source === 'extension-instant'" class="badge badge-neutral text-[10px] bg-purple-50 text-purple-700 border border-purple-200">
+                    ⚡ Extension
                   </span>
                   <span v-else class="badge badge-neutral text-[10px] bg-blue-50 text-blue-700">
                     Crawled
@@ -606,7 +760,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
               </td>
 
               <!-- 2. SEO Results Column -->
-              <td class="py-3 px-4 align-top">
+              <td data-label="SEO Audit Result" class="py-3 px-4 align-top">
                 <div v-if="page.seoStatus === 'not-audited'" class="flex items-center gap-1.5 text-gray-400 text-xs py-1">
                   <span>⏳</span>
                   <span>Not audited yet</span>
@@ -615,12 +769,12 @@ function getScoreBgBadge(score: number | null | undefined): string {
                 <div v-else class="space-y-1.5">
                   <div class="flex items-center gap-2">
                     <span
-                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold"
+                      class="inline-flex max-w-full flex-nowrap items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] leading-tight font-bold"
                       :class="page.seoStatus === 'good' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'"
                     >
                       <span>{{ page.seoStatus === 'good' ? '✓' : '⚠' }}</span>
                       <span>{{ page.seoStatus === 'good' ? 'Good SEO' : `${page.issues?.length || 0} Issue(s)` }}</span>
-                      <span v-if="typeof page.seoScore === 'number'" class="opacity-75">({{ page.seoScore }}/100)</span>
+                      <span v-if="typeof page.seoScore === 'number'" class="shrink-0 opacity-75">({{ page.seoScore }}/100)</span>
                     </span>
 
                   </div>
@@ -669,37 +823,40 @@ function getScoreBgBadge(score: number | null | undefined): string {
                 </div>
               </td>
 
-              <!-- 3. PageSpeed Scores Column (Design matching overview screenshot) -->
-              <td class="py-3 px-4 align-top">
+              <!-- 3. Performance Scores -->
+              <td data-label="Performance Scores" class="py-3 px-4 align-top">
                 <div v-if="!page.pageSpeedScores" class="flex items-center gap-1.5 text-gray-400 py-1">
                   <span>⚡</span>
                   <span class="text-xs">No PageSpeed benchmark yet</span>
                 </div>
 
                 <div v-else class="space-y-1.5">
-                  <div class="grid grid-cols-4 gap-1.5 text-center">
+                  <span v-if="page.pageSpeedAuditType === 'in-tab-lighthouse-style'" class="inline-flex rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700">
+                    In-tab Lighthouse-style audit
+                  </span>
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-1 text-center">
                     <!-- Performance -->
-                    <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.performance)">
-                      <span class="text-xs font-black">{{ page.pageSpeedScores.performance ?? '—' }}</span>
-                      <span class="text-[9px] font-semibold leading-tight opacity-75">Performance</span>
+                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.performance)">
+                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.performance ?? '—' }}</span>
+                      <span class="text-[8px] font-semibold leading-tight opacity-75">Performance</span>
                     </div>
 
                     <!-- Accessibility -->
-                    <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.accessibility)">
-                      <span class="text-xs font-black">{{ page.pageSpeedScores.accessibility ?? '—' }}</span>
-                      <span class="text-[9px] font-semibold leading-tight opacity-75">Accessibility</span>
+                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.accessibility)">
+                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.accessibility ?? '—' }}</span>
+                      <span class="text-[8px] font-semibold leading-tight opacity-75">Accessibility</span>
                     </div>
 
                     <!-- Best Practices -->
-                    <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.bestPractices)">
-                      <span class="text-xs font-black">{{ page.pageSpeedScores.bestPractices ?? '—' }}</span>
-                      <span class="text-[9px] font-semibold leading-tight opacity-75">Best Practices</span>
+                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.bestPractices)">
+                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.bestPractices ?? '—' }}</span>
+                      <span class="text-[8px] font-semibold leading-tight opacity-75">Best Practices</span>
                     </div>
 
                     <!-- SEO -->
-                    <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.seo)">
-                      <span class="text-xs font-black">{{ page.pageSpeedScores.seo ?? '—' }}</span>
-                      <span class="text-[9px] font-semibold leading-tight opacity-75">SEO</span>
+                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.seo)">
+                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.seo ?? '—' }}</span>
+                      <span class="text-[8px] font-semibold leading-tight opacity-75">SEO</span>
                     </div>
                   </div>
 
@@ -722,7 +879,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
               </td>
 
               <!-- 4. Per-page OWASP ZAP Results -->
-              <td class="py-3 px-4 align-top">
+              <td data-label="OWASP ZAP" class="py-3 px-4 align-top">
                 <div v-if="!page.securityAudit || page.securityAudit.status === 'idle'" class="text-gray-400">
                   <button
                     type="button"
@@ -771,7 +928,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
               </td>
 
               <!-- 5. Row Action Buttons -->
-              <td class="py-3 px-4 align-top text-right">
+              <td data-label="Page Actions" class="py-3 px-4 align-top text-right">
                 <div class="flex items-center justify-end gap-1.5">
                   <!-- Run SEO Button -->
                   <button
@@ -1078,7 +1235,9 @@ function getScoreBgBadge(score: number | null | undefined): string {
         <div class="flex items-start justify-between border-b pb-3">
           <div class="pr-4 min-w-0">
             <div class="flex items-center gap-2">
-              <span class="badge text-[10px] font-bold bg-amber-50 text-amber-700">PageSpeed Performance Findings</span>
+              <span class="badge text-[10px] font-bold bg-amber-50 text-amber-700">
+                {{ selectedPerformancePage.pageSpeedAuditType === 'in-tab-lighthouse-style' ? 'In-tab Lighthouse-style Findings' : 'PageSpeed Performance Findings' }}
+              </span>
               <span class="font-mono text-xs font-bold text-indigo-700">
                 {{ selectedPerformancePage.pageSpeedFindings?.length || 0 }} improvements
               </span>
@@ -1141,3 +1300,65 @@ function getScoreBgBadge(score: number | null | undefined): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Container queries follow the available page width, including when the
+   browser side panel leaves only a narrow area for the web app. */
+@container (max-width: 1050px) {
+  .page-audit-table,
+  .page-audit-table tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .page-audit-table thead {
+    display: none;
+  }
+
+  .page-audit-table tbody {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .page-audit-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    background: #fff;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.05);
+  }
+
+  .page-audit-table tbody td {
+    display: block;
+    width: 100%;
+    max-width: none;
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: left;
+  }
+
+  .page-audit-table tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .page-audit-table tbody td::before {
+    display: block;
+    margin-bottom: 0.45rem;
+    color: #64748b;
+    content: attr(data-label);
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1rem;
+    text-transform: uppercase;
+  }
+
+  .page-audit-table tbody td[data-label='Page Actions'] > div {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+</style>

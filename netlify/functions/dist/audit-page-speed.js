@@ -46,12 +46,30 @@ const handler = async (event) => {
             speedIndex: Math.round(audits['speed-index']?.numericValue || 0),
             tti: Math.round(audits['interactive']?.numericValue || 0),
         };
+        const performanceFindings = (scoreCategories?.performance?.auditRefs || [])
+            .filter((auditRef) => (auditRef.weight || 0) > 0)
+            .map((auditRef) => {
+            const audit = audits[auditRef.id];
+            if (!audit || audit.score === null || audit.score === undefined || audit.score >= 1 || audit.scoreDisplayMode === 'notApplicable')
+                return null;
+            return {
+                id: auditRef.id,
+                title: audit.title || auditRef.id,
+                description: audit.description || '',
+                displayValue: audit.displayValue,
+                score: audit.score,
+                savingsMs: audit.details?.overallSavingsMs,
+                savingsBytes: audit.details?.overallSavingsBytes,
+            };
+        })
+            .filter((finding) => finding !== null);
         return (0, firestore_1.jsonResponse)(200, {
             success: true,
             data: {
                 url,
                 scores,
                 metrics,
+                performanceFindings,
                 auditedAt: new Date().toISOString(),
             },
         }, origin);

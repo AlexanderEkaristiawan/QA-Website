@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const firestore_1 = require("./_shared/firestore");
+const audit_status_1 = require("./_shared/audit-status");
 const axios_1 = __importDefault(require("axios"));
 // ZAP API base URL — set via Netlify env var pointing to your self-hosted ZAP instance
 function getZapUrl() {
@@ -49,6 +50,7 @@ const handler = async (event) => {
                 },
                 errors: fv.arrayUnion({ bot: 'security', message: `ZAP unavailable: ${err.message}`, retriesLeft: 1 }),
             });
+            await (0, audit_status_1.refreshAuditJobStatus)(db, jobId).catch(() => { });
             return (0, firestore_1.jsonResponse)(503, { error: 'ZAP API not reachable', details: err.message }, origin);
         }
         // Step 2: Add target URL to context
@@ -83,6 +85,7 @@ const handler = async (event) => {
             'summaries.security.status': 'failed',
             errors: fv.arrayUnion({ bot: 'security', message: err.message, retriesLeft: 1 }),
         }).catch(() => { });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId).catch(() => { });
         return (0, firestore_1.jsonResponse)(500, { error: err.message }, origin);
     }
 };

@@ -203,6 +203,52 @@ export interface MessageMarginDistanceMeasured {
   vDistance: number
 }
 
+export interface RecordedPage {
+  url: string
+  path: string
+  title: string
+  statusCode: number
+  timestamp: number
+  redirectFrom?: string
+  saved: boolean
+}
+
+export interface RecordingSession {
+  isRecording: boolean
+  projectId: string
+  apiToken: string
+  apiBaseUrl: string
+  tabId: number | null
+  startUrl: string
+  recordedUrls: RecordedPage[]
+}
+
+export interface MessageStartRecording {
+  type: 'START_RECORDING'
+  projectId: string
+  apiToken: string
+  apiBaseUrl: string
+  tabId?: number
+}
+
+export interface MessageStopRecording {
+  type: 'STOP_RECORDING'
+}
+
+export interface MessageGetRecordingState {
+  type: 'GET_RECORDING_STATE'
+}
+
+export interface MessageRecordingState {
+  type: 'RECORDING_STATE'
+  session: RecordingSession
+}
+
+export interface MessageRecordedPageAdded {
+  type: 'RECORDED_PAGE_ADDED'
+  page: RecordedPage
+}
+
 export type ExtMessage =
   | MessageStartCrawl
   | MessageCrawlControl
@@ -216,5 +262,10 @@ export type ExtMessage =
   | MessageNavigateTab
   | MessageSetViewport
   | MessageClearViewport
+  | MessageStartRecording
+  | MessageStopRecording
+  | MessageGetRecordingState
+  | MessageRecordingState
+  | MessageRecordedPageAdded
 
 

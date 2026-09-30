@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.handler = void 0;
 const firestore_1 = require("./_shared/firestore");
+const audit_status_1 = require("./_shared/audit-status");
 const axios_1 = __importDefault(require("axios"));
 const MAX_PAGES = 25;
 const REQUEST_DELAY_MS = 500;
@@ -141,7 +142,11 @@ const handler = async (event) => {
                 continue;
             visited.add(url);
             const path = new URL(url).pathname;
-            const allowed = await isAllowedByRobots(targetUrl, path);
+            // Always inspect the requested start page so a robots rule cannot make
+            // an audit look like it completed without crawling anything. Discovered
+            // links continue to respect robots.txt.
+            const isStartPage = crawledPages.length === 0;
+            const allowed = isStartPage || await isAllowedByRobots(targetUrl, path);
             if (!allowed)
                 continue;
             await sleep(REQUEST_DELAY_MS);
@@ -183,9 +188,11 @@ const handler = async (event) => {
                 status: 'completed',
             },
         });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId);
         // Auto-create bug entries for critical SEO issues
         if (totalIssues > 0) {
             const bugRef = db.collection('bug_list').doc();
+            const bugBatch = db.batch();
             // Get next short ID via transaction
             const projectRef = db.collection('projects').doc(projectId);
             let shortId = '';
@@ -195,7 +202,7 @@ const handler = async (event) => {
                 shortId = `QAS-${counter}`;
                 tx.update(projectRef, { bugCounter: counter });
             });
-            batch.set(bugRef, {
+            bugBatch.set(bugRef, {
                 projectId,
                 shortId,
                 title: `${totalIssues} SEO Issues Found across ${crawledPages.length} pages`,
@@ -211,7 +218,7 @@ const handler = async (event) => {
                 createdAt: fv.serverTimestamp(),
                 lastEditedTime: fv.serverTimestamp(),
             });
-            await batch.commit();
+            await bugBatch.commit();
         }
         return (0, firestore_1.jsonResponse)(200, { pageCount: crawledPages.length, totalErrors: totalIssues }, origin);
     }
@@ -221,6 +228,7 @@ const handler = async (event) => {
             'summaries.seo.status': 'failed',
             errors: fv.arrayUnion({ bot: 'seo', message: err.message, retriesLeft: 1 }),
         }).catch(() => { });
+        await (0, audit_status_1.refreshAuditJobStatus)(db, jobId).catch(() => { });
         return (0, firestore_1.jsonResponse)(500, { error: err.message }, origin);
     }
 };

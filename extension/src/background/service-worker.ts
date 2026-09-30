@@ -5,13 +5,24 @@
  * service worker can be killed/restarted by Chrome without losing progress.
  */
 
-import type { CrawlSession, ExtMessage, PageMetrics, SecurityResponseData } from '../types/index'
+import type {
+  CrawlSession,
+  ExtMessage,
+  PageMetrics,
+  SecurityResponseData,
+  RecordedPage,
+  RecordingSession,
+  MessageStartRecording,
+} from '../types/index'
 import { extractPageMetrics } from '../content/scraper'
 
 const CRAWL_STATE_KEY = 'qas_crawl_session'
+const RECORDING_STATE_KEY = 'qas_recording_session'
 const DELAY_MS = 1000
 const LOGIN_PATHS = ['/login', '/signin', '/sign-in', '/auth', '/session/new']
 const securityResponses = new Map<number, SecurityResponseData>()
+const navigationStatuses = new Map<number, { url: string; statusCode: number }>()
+const redirectSources = new Map<number, string>()
 let crawlLoopActive = false
 let activeCrawlTabId: number | null = null
 let activeCrawlAbort: AbortController | null = null
@@ -40,6 +51,15 @@ chrome.webRequest.onHeadersReceived.addListener(
   },
   { urls: ['<all_urls>'], types: ['main_frame'] },
   ['responseHeaders', 'extraHeaders'],
+)
+
+// Keep the real main-frame response status for the navigation recorder.
+chrome.webRequest.onCompleted.addListener(
+  details => {
+    if (details.type !== 'main_frame' || details.tabId < 0) return
+    navigationStatuses.set(details.tabId, { url: details.url, statusCode: details.statusCode })
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] },
 )
 
 // Open side panel when user clicks the extension action icon in the toolbar
@@ -109,6 +129,18 @@ chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) =>
           .then(() => sendResponse({ ok: true }))
       })
       .catch((err: any) => sendResponse({ ok: false, error: String(err) }))
+  } else if (msg.type === 'START_RECORDING') {
+    startRecording(msg)
+      .then(session => sendResponse({ ok: true, session }))
+      .catch((err: any) => sendResponse({ ok: false, error: err.message }))
+  } else if (msg.type === 'STOP_RECORDING') {
+    stopRecording()
+      .then(session => sendResponse({ ok: true, session }))
+      .catch((err: any) => sendResponse({ ok: false, error: err.message }))
+  } else if (msg.type === 'GET_RECORDING_STATE') {
+    getRecordingSession()
+      .then(session => sendResponse({ ok: true, session }))
+      .catch((err: any) => sendResponse({ ok: false, error: err.message }))
   }
   return true // Keep channel open for async
 })
@@ -118,6 +150,188 @@ chrome.runtime.onStartup.addListener(() => {
 })
 
 void resumePersistedCrawl()
+
+// ── User Journey Navigation & Redirect Recording ─────────────────────────────
+chrome.webRequest.onBeforeRedirect.addListener(
+  details => {
+    if (details.type !== 'main_frame' || details.tabId < 0) return
+    redirectSources.set(details.tabId, details.url)
+  },
+  { urls: ['<all_urls>'], types: ['main_frame'] }
+)
+
+if (chrome.webNavigation) {
+  chrome.webNavigation.onCommitted.addListener(async details => {
+    if (details.frameId !== 0) return
+    await handleNavigationCommitted(details.tabId, details.url)
+  })
+  // Client side routers use history.pushState and do not cause a document commit.
+  chrome.webNavigation.onHistoryStateUpdated.addListener(async details => {
+    if (details.frameId !== 0) return
+    await handleNavigationCommitted(details.tabId, details.url)
+  })
+}
+
+// Fallback & Title updates via tabs.onUpdated
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url) {
+    await handleTabComplete(tabId, tab.url, tab.title || '')
+  }
+})
+
+async function handleNavigationCommitted(tabId: number, url: string) {
+  if (!url || url.startsWith('chrome://') || url.startsWith('edge://') || url.startsWith('about:') || url.startsWith('chrome-extension://')) {
+    return
+  }
+
+  const data = await chrome.storage.local.get(RECORDING_STATE_KEY)
+  const session: RecordingSession | undefined = data[RECORDING_STATE_KEY]
+  if (!session || !session.isRecording) return
+  if (session.tabId !== null && session.tabId !== tabId) return
+
+  // Prevent duplicate recorded page within 2.5s
+  const recent = (session.recordedUrls || []).find(r => r.url === url && Date.now() - r.timestamp < 2500)
+  if (recent) return
+
+  const redirectFrom = redirectSources.get(tabId)
+  redirectSources.delete(tabId)
+
+  let path = '/'
+  try { path = new URL(url).pathname || '/' } catch {}
+
+  let title = ''
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    title = tab.title || ''
+  } catch {}
+
+  const page: RecordedPage = {
+    url,
+    path,
+    title: title || path,
+    statusCode: navigationStatuses.get(tabId)?.url === url
+      ? navigationStatuses.get(tabId)!.statusCode
+      : 200,
+    timestamp: Date.now(),
+    redirectFrom,
+    saved: false,
+  }
+
+  session.recordedUrls = [page, ...(session.recordedUrls || [])]
+  if (session.recordedUrls.length > 100) session.recordedUrls = session.recordedUrls.slice(0, 100)
+  await chrome.storage.local.set({ [RECORDING_STATE_KEY]: session })
+
+  chrome.runtime.sendMessage({
+    type: 'RECORDED_PAGE_ADDED',
+    page,
+  } as ExtMessage).catch(() => {})
+
+  if (session.projectId && session.apiToken && session.apiBaseUrl) {
+    void syncPageToBackend(session, page)
+  }
+}
+
+async function handleTabComplete(tabId: number, url: string, title: string) {
+  const data = await chrome.storage.local.get(RECORDING_STATE_KEY)
+  const session: RecordingSession | undefined = data[RECORDING_STATE_KEY]
+  if (!session || !session.isRecording) return
+  if (session.tabId !== null && session.tabId !== tabId) return
+
+  const item = (session.recordedUrls || []).find(r => r.url === url)
+  if (item && (!item.title || item.title === item.path) && title) {
+    item.title = title
+    await chrome.storage.local.set({ [RECORDING_STATE_KEY]: session })
+    if (session.projectId && session.apiToken && session.apiBaseUrl) {
+      void syncPageToBackend(session, item)
+    }
+  }
+}
+
+async function syncPageToBackend(session: RecordingSession, page: RecordedPage) {
+  try {
+    const res = await fetch(`${session.apiBaseUrl}/record-page-audit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.apiToken}`,
+      },
+      body: JSON.stringify({
+        projectId: session.projectId,
+        url: page.url,
+        title: page.title,
+        statusCode: page.statusCode,
+        source: 'extension-record',
+      }),
+    })
+    if (res.ok) {
+      page.saved = true
+      const data = await chrome.storage.local.get(RECORDING_STATE_KEY)
+      const currentSession: RecordingSession | undefined = data[RECORDING_STATE_KEY]
+      if (currentSession) {
+        const found = (currentSession.recordedUrls || []).find(r => r.url === page.url)
+        if (found) found.saved = true
+        await chrome.storage.local.set({ [RECORDING_STATE_KEY]: currentSession })
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to sync recorded page:', err)
+  }
+}
+
+async function startRecording(params: MessageStartRecording): Promise<RecordingSession> {
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+  const tabId = params.tabId ?? activeTab?.id ?? null
+  const startUrl = activeTab?.url || ''
+
+  const session: RecordingSession = {
+    isRecording: true,
+    projectId: params.projectId,
+    apiToken: params.apiToken,
+    apiBaseUrl: params.apiBaseUrl,
+    tabId,
+    startUrl,
+    recordedUrls: [],
+  }
+
+  if (startUrl && !startUrl.startsWith('chrome://') && !startUrl.startsWith('edge://') && !startUrl.startsWith('about:') && !startUrl.startsWith('chrome-extension://')) {
+    let path = '/'
+    try { path = new URL(startUrl).pathname || '/' } catch {}
+    const initialPage: RecordedPage = {
+      url: startUrl,
+      path,
+      title: activeTab?.title || path,
+      statusCode: 200,
+      timestamp: Date.now(),
+      saved: false,
+    }
+    session.recordedUrls.push(initialPage)
+    void syncPageToBackend(session, initialPage)
+  }
+
+  await chrome.storage.local.set({ [RECORDING_STATE_KEY]: session })
+  return session
+}
+
+async function stopRecording(): Promise<RecordingSession> {
+  const data = await chrome.storage.local.get(RECORDING_STATE_KEY)
+  const session: RecordingSession = data[RECORDING_STATE_KEY] || {
+    isRecording: false,
+    projectId: '',
+    apiToken: '',
+    apiBaseUrl: '',
+    tabId: null,
+    startUrl: '',
+    recordedUrls: [],
+  }
+  session.isRecording = false
+  await chrome.storage.local.set({ [RECORDING_STATE_KEY]: session })
+  return session
+}
+
+async function getRecordingSession(): Promise<RecordingSession | null> {
+  const data = await chrome.storage.local.get(RECORDING_STATE_KEY)
+  return data[RECORDING_STATE_KEY] || null
+}
 
 // ── Viewport emulation via Chrome Debugger Protocol ───────────────────────────
 // Mirrors what DevTools' device toolbar does: overrides the tab's CSS viewport

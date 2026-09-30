@@ -156,7 +156,7 @@ export interface ProjectPage {
   url: string
   path: string
   title?: string
-  source?: 'manual' | 'crawled' | 'root'
+  source?: 'manual' | 'crawled' | 'root' | 'extension-record' | 'extension-instant'
   statusCode?: number
   // SEO Metrics & Findings
   seoScore?: number | null
@@ -187,6 +187,7 @@ export interface ProjectPage {
     tti?: number
   } | null
   pageSpeedFindings?: PageSpeedFinding[] | null
+  pageSpeedAuditType?: string
   pageSpeedAuditedAt?: FireTimestamp | Date | string | null
   securityAudit?: {
     status: 'idle' | 'starting' | 'scanning' | 'completed' | 'unavailable'
