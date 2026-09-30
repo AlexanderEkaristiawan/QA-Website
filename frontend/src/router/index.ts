@@ -28,9 +28,13 @@ const router = createRouter({
     },
     {
       path: '/projects/:id',
-      name: 'ProjectDetail',
-      component: () => import('@/views/ProjectDetailView.vue'),
+      name: 'ProjectHome',
+      component: () => import('@/views/PageAuditsView.vue'),
       meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:id/overview',
+      redirect: to => ({ name: 'ProjectHome', params: { id: to.params.id } }),
     },
     {
       path: '/projects/:id/audit/:auditId',
@@ -52,9 +56,7 @@ const router = createRouter({
     },
     {
       path: '/projects/:id/pages',
-      name: 'PageAudits',
-      component: () => import('@/views/PageAuditsView.vue'),
-      meta: { requiresAuth: true },
+      redirect: to => ({ name: 'ProjectHome', params: { id: to.params.id } }),
     },
     {
       path: '/projects/:id/history',

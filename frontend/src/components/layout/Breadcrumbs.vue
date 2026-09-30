@@ -37,17 +37,14 @@ const breadcrumbs = computed<Breadcrumb[]>(() => {
   }
 
   const pageLabels: Record<string, string> = {
-    ProjectDetail: 'Overview',
+    ProjectHome: 'Page Audits',
     AuditResults: 'Audit Results',
     BugList: 'Bugs',
     TestCases: 'Test Cases',
     TrendHistory: 'History',
   }
   const pageLabel = pageLabels[String(route.name)]
-  if (pageLabel && route.name !== 'ProjectDetail') {
-    items.push({ label: 'Overview', to: `/projects/${projectId}` })
-  }
-  if (pageLabel) items.push({ label: pageLabel })
+  if (pageLabel && route.name !== 'ProjectHome') items.push({ label: pageLabel })
 
   return items
 })

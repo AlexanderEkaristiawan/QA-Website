@@ -10,7 +10,7 @@ const router = useRouter()
 const projectStore = useProjectStore()
 const auditStore = useAuditStore()
 const pageStore = usePageStore()
-const { auditingSeoUrl, auditingPerfUrl, runSinglePageSEO, runSinglePageSpeed } = usePageAudits()
+const { auditingSeoUrl, auditingPerfUrl, auditingSecurityUrl, runSinglePageSEO, runSinglePageSpeed, runSinglePageSecurity } = usePageAudits()
 
 const projectId = route.params.id as string
 const project = ref<Project | null>(null)
@@ -30,6 +30,8 @@ const addPageError = ref('')
 
 // SEO Details Modal
 const selectedPageForDetails = ref<ProjectPage | null>(null)
+const selectedSecurityPage = ref<ProjectPage | null>(null)
+const selectedPerformancePage = ref<ProjectPage | null>(null)
 
 // Batch running states
 const batchRunningSeo = ref(false)
@@ -311,13 +313,24 @@ async function runPageSpeedForPage(page: ProjectPage) {
     Object.assign(page, {
       pageSpeedScores: result.pageSpeedScores,
       pageSpeedMetrics: result.pageSpeedMetrics,
+      pageSpeedFindings: result.pageSpeedFindings,
       pageSpeedAuditedAt: new Date(),
     })
     await pageStore.updateProjectPage(projectId, page.id, {
       pageSpeedScores: result.pageSpeedScores,
       pageSpeedMetrics: result.pageSpeedMetrics,
+      pageSpeedFindings: result.pageSpeedFindings,
       pageSpeedAuditedAt: new Date(),
     })
+  }
+}
+
+async function runSecurityAuditForPage(page: ProjectPage) {
+  if (auditingSecurityUrl.value === page.url) return
+  const result = await runSinglePageSecurity(page.url, projectId)
+  if (result) {
+    Object.assign(page, { securityAudit: result })
+    await pageStore.updateProjectPage(projectId, page.id, { securityAudit: result })
   }
 }
 
@@ -387,14 +400,8 @@ function getScoreBgBadge(score: number | null | undefined): string {
     <!-- Header -->
     <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <router-link
-          :to="`/projects/${projectId}`"
-          class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-indigo-600 transition-colors"
-        >
-          <span>← Back to Project Overview</span>
-        </router-link>
         <div class="flex items-center gap-2.5">
-          <h1 class="text-2xl font-bold text-gray-900">Page SEO &amp; Performance Audits</h1>
+          <h1 class="text-2xl font-bold text-gray-900">{{ project.name }}</h1>
           <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
             {{ pages.length }} page{{ pages.length === 1 ? '' : 's' }}
           </span>
@@ -407,18 +414,6 @@ function getScoreBgBadge(score: number | null | undefined): string {
 
       <!-- Action Buttons -->
       <div class="flex items-center gap-2 flex-wrap">
-        <button
-          type="button"
-          @click="handleImportCrawledPages"
-          class="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5"
-          :disabled="importingCrawled"
-          title="Import any URLs found during previous site audits"
-        >
-          <span v-if="importingCrawled" class="h-3 w-3 rounded-full border-2 border-gray-400 border-t-transparent animate-spin"></span>
-          <span v-else>📥</span>
-          <span>Import Crawled Pages</span>
-        </button>
-
         <button
           type="button"
           @click="showAddModal = true"
@@ -434,10 +429,8 @@ function getScoreBgBadge(score: number | null | undefined): string {
     <div class="flex gap-1 border-b border-gray-200">
       <router-link
         v-for="tab in [
-          { label: '📈 Trends', path: `/projects/${project.id}/history` },
-          { label: '🐛 Bug List', path: `/projects/${project.id}/bugs` },
-          { label: '✅ Test Cases', path: `/projects/${project.id}/test-cases` },
-          { label: '📑 Page Audits', path: `/projects/${project.id}/pages` },
+          { label: '🐞 Bug List', path: `/projects/${project.id}/bugs` },
+          { label: '✏️ Test Cases', path: `/projects/${project.id}/test-cases` },
         ]"
         :key="tab.path"
         :to="tab.path"
@@ -562,9 +555,9 @@ function getScoreBgBadge(score: number | null | undefined): string {
               <th scope="col" class="py-3 px-4 min-w-[240px]">
                 <div class="flex items-center gap-1">
                   <span>PageSpeed Scores</span>
-                  <span class="text-[9px] font-normal lowercase text-gray-400">(Perf / A11y / Best / SEO)</span>
                 </div>
               </th>
+              <th scope="col" class="py-3 px-4 min-w-[170px]">OWASP ZAP</th>
               <th scope="col" class="py-3 px-4 text-right">Actions</th>
             </tr>
           </thead>
@@ -630,13 +623,6 @@ function getScoreBgBadge(score: number | null | undefined): string {
                       <span v-if="typeof page.seoScore === 'number'" class="opacity-75">({{ page.seoScore }}/100)</span>
                     </span>
 
-                    <button
-                      type="button"
-                      @click="selectedPageForDetails = page"
-                      class="text-[10px] text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
-                    >
-                      View Findings
-                    </button>
                   </div>
 
                   <!-- Quick Badges -->
@@ -673,6 +659,13 @@ function getScoreBgBadge(score: number | null | undefined): string {
                       Canonical
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    @click="selectedPageForDetails = page"
+                    class="pt-1 text-[10px] text-indigo-600 hover:text-indigo-800 hover:underline font-semibold"
+                  >
+                    View Findings
+                  </button>
                 </div>
               </td>
 
@@ -688,25 +681,25 @@ function getScoreBgBadge(score: number | null | undefined): string {
                     <!-- Performance -->
                     <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.performance)">
                       <span class="text-xs font-black">{{ page.pageSpeedScores.performance ?? '—' }}</span>
-                      <span class="text-[9px] uppercase font-semibold opacity-75">Perf</span>
+                      <span class="text-[9px] font-semibold leading-tight opacity-75">Performance</span>
                     </div>
 
                     <!-- Accessibility -->
                     <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.accessibility)">
                       <span class="text-xs font-black">{{ page.pageSpeedScores.accessibility ?? '—' }}</span>
-                      <span class="text-[9px] uppercase font-semibold opacity-75">A11y</span>
+                      <span class="text-[9px] font-semibold leading-tight opacity-75">Accessibility</span>
                     </div>
 
                     <!-- Best Practices -->
                     <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.bestPractices)">
                       <span class="text-xs font-black">{{ page.pageSpeedScores.bestPractices ?? '—' }}</span>
-                      <span class="text-[9px] uppercase font-semibold opacity-75">Best</span>
+                      <span class="text-[9px] font-semibold leading-tight opacity-75">Best Practices</span>
                     </div>
 
                     <!-- SEO -->
                     <div class="flex flex-col items-center p-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.seo)">
                       <span class="text-xs font-black">{{ page.pageSpeedScores.seo ?? '—' }}</span>
-                      <span class="text-[9px] uppercase font-semibold opacity-75">SEO</span>
+                      <span class="text-[9px] font-semibold leading-tight opacity-75">SEO</span>
                     </div>
                   </div>
 
@@ -718,10 +711,66 @@ function getScoreBgBadge(score: number | null | undefined): string {
                     <span>•</span>
                     <span>CLS: {{ page.pageSpeedMetrics.cls }}</span>
                   </div>
+                  <button
+                    type="button"
+                    class="pt-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                    @click="selectedPerformancePage = page"
+                  >
+                    View Findings
+                  </button>
                 </div>
               </td>
 
-              <!-- 4. Row Action Buttons -->
+              <!-- 4. Per-page OWASP ZAP Results -->
+              <td class="py-3 px-4 align-top">
+                <div v-if="!page.securityAudit || page.securityAudit.status === 'idle'" class="text-gray-400">
+                  <button
+                    type="button"
+                    @click="runSecurityAuditForPage(page)"
+                    class="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 font-semibold"
+                    :disabled="auditingSecurityUrl === page.url"
+                  >
+                    <span>🛡️ Test URL</span>
+                  </button>
+                </div>
+                <div v-else-if="auditingSecurityUrl === page.url || page.securityAudit.status === 'starting' || page.securityAudit.status === 'scanning'" class="flex items-center gap-1.5 text-indigo-600 text-xs">
+                  <span class="h-3 w-3 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></span>
+                  <span>Scanning{{ page.securityAudit.progress ? ` ${page.securityAudit.progress}%` : '...' }}</span>
+                </div>
+                <div v-else-if="page.securityAudit.status === 'unavailable'" class="space-y-1">
+                  <span class="text-xs text-amber-600">ZAP unavailable</span>
+                  <button type="button" @click="runSecurityAuditForPage(page)" class="block text-[10px] text-indigo-600 hover:underline">Retry</button>
+                </div>
+                <div v-else class="space-y-1 text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="font-semibold text-red-600">{{ page.securityAudit.highAlerts }} high</span>
+                    <span class="font-semibold text-amber-600">{{ page.securityAudit.mediumAlerts }} med</span>
+                  </div>
+                  <span class="text-gray-500">{{ page.securityAudit.lowAlerts }} low</span>
+                  <div v-if="page.securityAudit.alerts?.length" class="space-y-0.5 pt-1">
+                    <p
+                      v-for="alert in page.securityAudit.alerts.slice(0, 2)"
+                      :key="alert.alert"
+                      class="truncate text-[10px] text-gray-600"
+                      :title="alert.description || alert.alert"
+                    >
+                      ⚠ {{ alert.alert }}
+                    </p>
+                    <p v-if="page.securityAudit.alerts.length > 2" class="text-[10px] text-gray-400">
+                      +{{ page.securityAudit.alerts.length - 2 }} more findings
+                    </p>
+                    <button
+                      type="button"
+                      class="pt-1 text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline"
+                      @click="selectedSecurityPage = page"
+                    >
+                      View Findings
+                    </button>
+                  </div>
+                </div>
+              </td>
+
+              <!-- 5. Row Action Buttons -->
               <td class="py-3 px-4 align-top text-right">
                 <div class="flex items-center justify-end gap-1.5">
                   <!-- Run SEO Button -->
@@ -952,6 +1001,141 @@ function getScoreBgBadge(score: number | null | undefined): string {
           <button @click="selectedPageForDetails = null" class="btn-secondary text-xs py-1.5">
             Close
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: OWASP ZAP FINDINGS -->
+    <div
+      v-if="selectedSecurityPage"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      @click.self="selectedSecurityPage = null"
+    >
+      <div class="card w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6 space-y-4 shadow-2xl bg-white">
+        <div class="flex items-start justify-between border-b pb-3">
+          <div class="pr-4">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-bad text-[10px] font-bold">OWASP ZAP Findings</span>
+              <span class="font-mono text-xs font-bold text-indigo-700">
+                {{ selectedSecurityPage.securityAudit?.alerts?.length || 0 }} alerts
+              </span>
+            </div>
+            <h3 class="text-base font-bold text-gray-900 mt-1">{{ selectedSecurityPage.title || 'Security Findings' }}</h3>
+            <p class="text-xs font-mono text-gray-500 break-all">{{ selectedSecurityPage.url }}</p>
+          </div>
+          <button type="button" @click="selectedSecurityPage = null" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <div class="rounded-lg border border-red-200 bg-red-50 p-2">
+            <strong class="block text-lg text-red-600">{{ selectedSecurityPage.securityAudit?.highAlerts || 0 }}</strong>
+            <span class="text-red-700">High</span>
+          </div>
+          <div class="rounded-lg border border-amber-200 bg-amber-50 p-2">
+            <strong class="block text-lg text-amber-600">{{ selectedSecurityPage.securityAudit?.mediumAlerts || 0 }}</strong>
+            <span class="text-amber-700">Medium</span>
+          </div>
+          <div class="rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <strong class="block text-lg text-gray-600">{{ selectedSecurityPage.securityAudit?.lowAlerts || 0 }}</strong>
+            <span class="text-gray-600">Low</span>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div
+            v-for="(alert, index) in selectedSecurityPage.securityAudit?.alerts || []"
+            :key="`${alert.alert}-${index}`"
+            class="rounded-lg border p-3 text-xs"
+            :class="alert.risk === 'High' ? 'border-red-200 bg-red-50' : alert.risk === 'Medium' ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <h4 class="font-bold text-gray-900">{{ alert.alert }}</h4>
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase" :class="alert.risk === 'High' ? 'bg-red-200 text-red-800' : alert.risk === 'Medium' ? 'bg-amber-200 text-amber-800' : 'bg-gray-200 text-gray-700'">
+                {{ alert.risk || 'Info' }}
+              </span>
+            </div>
+            <p v-if="alert.description" class="mt-1 leading-relaxed text-gray-700">{{ alert.description }}</p>
+            <p v-if="alert.solution" class="mt-2 leading-relaxed text-gray-600"><strong>Solution:</strong> {{ alert.solution }}</p>
+          </div>
+          <p v-if="!selectedSecurityPage.securityAudit?.alerts?.length" class="rounded-lg bg-emerald-50 p-4 text-center text-sm text-emerald-800">
+            No detailed alerts were returned for this URL.
+          </p>
+        </div>
+
+        <div class="flex justify-end border-t pt-3">
+          <button type="button" @click="selectedSecurityPage = null" class="btn-secondary text-xs py-1.5">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: PAGESPEED PERFORMANCE FINDINGS -->
+    <div
+      v-if="selectedPerformancePage"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      @click.self="selectedPerformancePage = null"
+    >
+      <div class="card w-full max-w-3xl max-h-[85vh] overflow-y-auto p-6 space-y-4 shadow-2xl bg-white">
+        <div class="flex items-start justify-between border-b pb-3">
+          <div class="pr-4 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="badge text-[10px] font-bold bg-amber-50 text-amber-700">PageSpeed Performance Findings</span>
+              <span class="font-mono text-xs font-bold text-indigo-700">
+                {{ selectedPerformancePage.pageSpeedFindings?.length || 0 }} improvements
+              </span>
+            </div>
+            <h3 class="text-base font-bold text-gray-900 mt-1">{{ selectedPerformancePage.title || 'Performance Improvements' }}</h3>
+            <p class="text-xs font-mono text-gray-500 break-all">{{ selectedPerformancePage.url }}</p>
+          </div>
+          <button type="button" @click="selectedPerformancePage = null" class="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+        </div>
+
+        <div v-if="selectedPerformancePage.pageSpeedScores" class="grid grid-cols-4 gap-2 text-center text-xs">
+          <div
+            v-for="category in [
+              { label: 'Performance', score: selectedPerformancePage.pageSpeedScores.performance },
+              { label: 'Accessibility', score: selectedPerformancePage.pageSpeedScores.accessibility },
+              { label: 'Best Practices', score: selectedPerformancePage.pageSpeedScores.bestPractices },
+              { label: 'SEO', score: selectedPerformancePage.pageSpeedScores.seo },
+            ]"
+            :key="category.label"
+            class="rounded-lg border p-2"
+            :class="getScoreColorClass(category.score)"
+          >
+            <strong class="block text-lg">{{ category.score ?? '—' }}</strong>
+            <span>{{ category.label }}</span>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <h4 class="text-xs font-bold text-gray-800 uppercase tracking-wider">Recommended performance improvements</h4>
+          <div v-if="selectedPerformancePage.pageSpeedFindings?.length" class="space-y-2">
+            <article
+              v-for="finding in selectedPerformancePage.pageSpeedFindings"
+              :key="finding.id"
+              class="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-xs"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h5 class="font-bold text-gray-900">{{ finding.title }}</h5>
+                <span v-if="finding.displayValue" class="shrink-0 rounded bg-white px-2 py-0.5 text-[10px] text-gray-600">
+                  {{ finding.displayValue }}
+                </span>
+              </div>
+              <p v-if="finding.description" class="mt-1 leading-relaxed text-gray-700">{{ finding.description }}</p>
+              <p v-if="finding.savingsMs || finding.savingsBytes" class="mt-2 font-semibold text-emerald-700">
+                Potential savings:
+                <span v-if="finding.savingsMs">{{ (finding.savingsMs / 1000).toFixed(1) }} s</span>
+                <span v-if="finding.savingsMs && finding.savingsBytes"> · </span>
+                <span v-if="finding.savingsBytes">{{ (finding.savingsBytes / 1024).toFixed(0) }} KiB</span>
+              </p>
+            </article>
+          </div>
+          <p v-else class="rounded-lg bg-emerald-50 p-4 text-center text-sm text-emerald-800">
+            No detailed performance improvements were returned. Run PageSpeed again to refresh the findings.
+          </p>
+        </div>
+
+        <div class="flex justify-end border-t pt-3">
+          <button type="button" @click="selectedPerformancePage = null" class="btn-secondary text-xs py-1.5">Close</button>
         </div>
       </div>
     </div>

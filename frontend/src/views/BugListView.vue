@@ -261,7 +261,7 @@ function openLightbox(urls: string[], index: number) {
         class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600"
       >
         <span aria-hidden="true">←</span>
-        <span>Back to Project Overview</span>
+        <span>Back to Page Audits</span>
       </router-link>
       <h1 class="text-2xl font-bold text-gray-900">🐛 Bug List</h1>
       <p class="mt-1 text-sm text-gray-500">

@@ -283,7 +283,7 @@ async function importSelectedScenarios() {
         class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600"
       >
         <span aria-hidden="true">←</span>
-        <span>Back to Project Overview</span>
+        <span>Back to Page Audits</span>
       </router-link>
       <div class="flex items-center gap-2.5">
         <h1 class="text-2xl font-bold text-gray-900">Test Cases</h1>

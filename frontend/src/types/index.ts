@@ -140,6 +140,16 @@ export interface PageResult {
 }
 
 // === Tracked Project Pages (Page Audits View) ===
+export interface PageSpeedFinding {
+  id: string
+  title: string
+  description: string
+  displayValue?: string
+  score?: number | null
+  savingsMs?: number
+  savingsBytes?: number
+}
+
 export interface ProjectPage {
   id: string
   projectId: string
@@ -176,7 +186,17 @@ export interface ProjectPage {
     speedIndex?: number
     tti?: number
   } | null
+  pageSpeedFindings?: PageSpeedFinding[] | null
   pageSpeedAuditedAt?: FireTimestamp | Date | string | null
+  securityAudit?: {
+    status: 'idle' | 'starting' | 'scanning' | 'completed' | 'unavailable'
+    highAlerts: number
+    mediumAlerts: number
+    lowAlerts: number
+    progress?: number
+    error?: string
+    alerts?: Array<{ alert: string; risk?: string; description?: string; solution?: string }>
+  } | null
   createdAt?: FireTimestamp | Date | string
 }
 

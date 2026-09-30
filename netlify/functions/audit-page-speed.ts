@@ -4,6 +4,16 @@ import axios from 'axios'
 
 interface PageSpeedCategory {
   score: number | null
+  auditRefs?: Array<{ id: string; weight?: number }>
+}
+
+interface PageSpeedAudit {
+  title?: string
+  description?: string
+  displayValue?: string
+  score?: number | null
+  scoreDisplayMode?: string
+  details?: { overallSavingsMs?: number; overallSavingsBytes?: number }
 }
 
 interface PageSpeedResponse {
@@ -20,7 +30,7 @@ interface PageSpeedResponse {
       'best-practices'?: PageSpeedCategory
       seo?: PageSpeedCategory
     }
-    audits?: Record<string, { numericValue?: number; displayValue?: string }>
+    audits?: Record<string, PageSpeedAudit & { numericValue?: number }>
   }
 }
 
@@ -75,6 +85,22 @@ export const handler: Handler = async (event: HandlerEvent) => {
       speedIndex: Math.round(audits['speed-index']?.numericValue || 0),
       tti: Math.round(audits['interactive']?.numericValue || 0),
     }
+    const performanceFindings = (scoreCategories?.performance?.auditRefs || [])
+      .filter((auditRef) => (auditRef.weight || 0) > 0)
+      .map((auditRef) => {
+        const audit = audits[auditRef.id]
+        if (!audit || audit.score === null || audit.score === undefined || audit.score >= 1 || audit.scoreDisplayMode === 'notApplicable') return null
+        return {
+          id: auditRef.id,
+          title: audit.title || auditRef.id,
+          description: audit.description || '',
+          displayValue: audit.displayValue,
+          score: audit.score,
+          savingsMs: audit.details?.overallSavingsMs,
+          savingsBytes: audit.details?.overallSavingsBytes,
+        }
+      })
+      .filter((finding): finding is NonNullable<typeof finding> => finding !== null)
 
     return jsonResponse(
       200,
@@ -84,6 +110,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
           url,
           scores,
           metrics,
+          performanceFindings,
           auditedAt: new Date().toISOString(),
         },
       },
