@@ -69,11 +69,10 @@ async function loadStats(projectIds: string[]) {
       const bugsSnap = await getDocs(
         query(
           collection(db, 'bug_list'),
-          where('projectId', '==', pid),
-          where('status', '!=', 'Resolved')
+          where('projectId', '==', pid)
         )
       )
-      openCount += bugsSnap.size
+      openCount += bugsSnap.docs.filter(d => d.data().status !== 'Resolved').length
     }
     openBugsCount.value = openCount
   } catch (err) {

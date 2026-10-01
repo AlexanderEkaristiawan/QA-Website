@@ -2,6 +2,176 @@
 
 QA-Suite is a Vue 3 quality-assurance workspace for SEO crawling, performance audits, security scanning, bug tracking, screenshots, test cases, reporting, and AI-assisted Playwright script generation.
 
+## System Overview
+
+QA-Suite is a web-based quality assurance platform with a companion Chrome extension. It combines automated website analysis with manual QA management in one project workspace. A user creates a project, verifies ownership of the target domain, runs one or more audit types, reviews the findings, and converts important findings into trackable bugs.
+
+The system has three main execution paths:
+
+1. **Web application audits** run server-side through Netlify Functions.
+2. **Authenticated extension crawls** run inside the user's browser so existing cookies and login sessions can be used.
+3. **Manual QA workflows** manage bugs, screenshots, comments, test cases, reports, and AI-assisted remediation.
+
+## Technology Stack
+
+| Layer | Technology | Responsibility |
+| --- | --- | --- |
+| Frontend | Vue 3, TypeScript, Vite | Reactive single-page application and route views |
+| Styling | Tailwind CSS, component utility classes | Responsive layout, forms, tables, cards, and status states |
+| Routing | Vue Router | Authentication-aware navigation and project subpages |
+| Client data | Firebase Web SDK | Authentication, Firestore subscriptions, and project data access |
+| Backend | Netlify Functions, TypeScript | Audit orchestration, crawlers, PageSpeed, ZAP integration, and AI endpoints |
+| Database | Cloud Firestore | Projects, audit jobs, page results, bugs, comments, and test cases |
+| File storage | Cloudinary and Firebase Storage configuration | Bug screenshots and uploaded QA evidence |
+| Browser extension | Chrome Manifest V3, Vue, TypeScript | Authenticated crawling, active-page audits, and in-page inspection tools |
+| SEO analysis | Custom TypeScript crawler and HTML parser | Titles, metadata, headings, links, images, canonical URLs, and robots data |
+| Performance analysis | Google PageSpeed Insights API | Lighthouse performance, accessibility, best-practice, and SEO scores |
+| Security analysis | OWASP ZAP API | Spidering, active scanning, alerts, risk levels, and remediation details |
+| AI assistance | Gemini with optional OpenAI fallback | Remediation guides, test cases, test data, and Playwright script generation |
+| Deployment | Netlify and optional Firebase Hosting | Frontend hosting, serverless functions, and SPA routing |
+
+## High-Level Architecture
+
+```mermaid
+flowchart LR
+	User[User] --> Web[Vue 3 Web Application]
+	User --> Extension[Chrome Extension]
+	Web --> Auth[Firebase Authentication]
+	Web --> Firestore[(Cloud Firestore)]
+	Web --> Functions[Netlify Functions]
+	Extension --> Functions
+	Extension --> Browser[Authenticated Browser Tabs]
+	Functions --> Firestore
+	Functions --> PSI[Google PageSpeed Insights]
+	Functions --> ZAP[OWASP ZAP API]
+	Functions --> AI[Gemini / OpenAI]
+	Functions --> Files[Cloudinary / Firebase Storage]
+```
+
+The frontend is responsible for user interaction and live data presentation. Netlify Functions provide the trusted server boundary for operations that require API keys, Firebase Admin credentials, crawling, or external security services. Firestore acts as the shared persistence layer between the web application, background audit functions, and extension.
+
+## Main Modules
+
+### Web Application
+
+- **Authentication:** Firebase Authentication protects application routes and identifies the current user.
+- **Projects:** Stores target URLs, ownership verification, crawl settings, authentication settings, and project members.
+- **Page Audits:** Tracks individual URLs and allows separate SEO, PageSpeed, and OWASP ZAP actions for each page.
+- **Audit Jobs:** Stores the status and summaries for server-side audit runs.
+- **Bug Management:** Converts audit findings into bugs with status, severity, assignees, comments, remediation guides, and screenshots.
+- **Test Cases:** Supports manual test cases and AI-generated scenarios with optional Playwright scripts.
+- **Reports:** Exports audit and project information for documentation or sharing.
+
+### Chrome Extension
+
+The Manifest V3 extension provides capabilities that are difficult to reproduce from a server:
+
+- Uses the user's active browser cookies for authenticated pages.
+- Crawls internal links in the background with pause, resume, stop, and login-loss detection.
+- Sends collected page metrics to the project through a project-scoped token.
+- Runs active-page SEO/header checks.
+- Provides Inspect UI tools inspired by VisBug, including element inspection, spacing, padding, colors, movement, deletion, accessibility checks, and guides.
+
+### Audit Functions
+
+- `bot-seo` performs a breadth-first crawl and stores page-level SEO findings.
+- `bot-performance` calls PageSpeed Insights and stores Lighthouse scores and Core Web Vitals.
+- `bot-security` starts an OWASP ZAP scan for a target URL.
+- `check-zap-status` polls ZAP and stores alert counts and security findings.
+- `audit-page-security` and `check-page-security` run and summarize ZAP scans for individual URLs in the Page Audits table.
+- `crawl-ingest` receives authenticated extension crawl results.
+- `finalize-crawl` closes extension-created audit jobs after traversal completes.
+
+## Audit Data Flow
+
+```mermaid
+sequenceDiagram
+	actor User
+	participant UI as Vue Application
+	participant API as Netlify Functions
+	participant DB as Firestore
+	participant External as PageSpeed / ZAP
+
+	User->>UI: Select an audit feature
+	UI->>API: Start audit request
+	API->>DB: Create audit job and initial status
+	API->>External: Start SEO, PageSpeed, or ZAP work
+	External-->>API: Results or scan progress
+	API->>DB: Store page data, scores, alerts, and errors
+	DB-->>UI: Firestore subscription updates
+	UI-->>User: Show status, scores, findings, and history
+```
+
+For a server SEO crawl, the crawler starts from the project target URL, normalizes discovered URLs, enforces the target domain, checks robots rules for discovered links, and stores page findings under the audit job. The requested start page is still inspected so a restrictive `robots.txt` cannot produce a misleading zero-page audit.
+
+For PageSpeed, the system stores Performance, Accessibility, Best Practices, and SEO scores together with FCP, LCP, CLS, Speed Index, and TTI. A score is displayed only after the performance bot completes successfully; pending or failed results are shown as unavailable rather than as a real zero.
+
+For OWASP ZAP, the system supports both project-level scans and individual Page Audits scans. Individual scans store their own scan ID, progress, counts, alert names, descriptions, and solutions so security findings remain associated with the URL that produced them.
+
+## Firestore Data Model
+
+```text
+projects/{projectId}
+	- name, targetUrl, ownershipVerified
+	- members, authSettings, crawl limits
+	- extensionApiToken hash
+
+audit_jobs/{jobId}
+	- projectId, crawlMode, status, timestamp
+	- summaries.seo
+	- summaries.security
+	- summaries.performance
+
+audit_jobs/{jobId}/pages/{pageId}
+	- URL, title, metadata, headings, images, links, SEO issues
+
+audit_jobs/{jobId}/vulnerabilities/{vulnerabilityId}
+	- ZAP alert, risk, URL, evidence, solution
+
+audit_jobs/{jobId}/performance_metrics/{metricId}
+	- FCP, LCP, CLS, Speed Index, TTI
+
+projects/{projectId}.customPages
+	- tracked Page Audits URLs and their SEO, PageSpeed, and ZAP results
+
+bug_list/{bugId}
+	- projectId, source, severity, status, description, screenshots
+```
+
+## Security and Reliability
+
+- Firebase Authentication protects authenticated web routes.
+- Firestore access is scoped by project membership and ownership rules.
+- Extension tokens are project-scoped and stored server-side as SHA-256 hashes.
+- API keys and service-account credentials remain in environment variables.
+- Audit job IDs are validated against the authenticated project before ingestion.
+- Crawl URLs are normalized to reduce duplicate page records.
+- Audit page ingestion is idempotent for normalized URLs.
+- Background audit functions update individual bot statuses and the overall audit status.
+- Crawl pause, resume, stop, and worker restart states are persisted in extension storage.
+- ZAP and PageSpeed failures are surfaced as explicit status or error states rather than silently appearing as valid results.
+
+## Testing and Verification
+
+The project uses build and type-check commands as baseline verification:
+
+```powershell
+npm --prefix frontend run build
+npm --prefix netlify/functions run typecheck
+npm --prefix extension run typecheck
+npm --prefix extension run build
+```
+
+Manual verification should include:
+
+- Starting a server SEO audit and confirming page records appear.
+- Running PageSpeed and confirming all four Lighthouse scores update.
+- Running an OWASP ZAP scan with ZAP reachable and reviewing alert details.
+- Running a per-page ZAP scan from Page Audits and opening its findings popup.
+- Starting an authenticated extension crawl and checking that discovered URLs appear in Page Audits.
+- Pausing, resuming, and stopping an extension crawl.
+- Creating a bug from an audit finding and attaching evidence.
+
 ## Current Features
 
 - Firebase Authentication and Firestore project workspaces.
@@ -136,7 +306,9 @@ Bot summaries are updated independently. Once all applicable bot summaries reach
 - `/login`
 - `/dashboard`
 - `/projects`
-- `/projects/:id`
+- `/projects/:id` — Page Audits workspace and default project detail page
+- `/projects/:id/overview` — legacy route redirected to the Page Audits workspace
+- `/projects/:id/pages` — legacy route redirected to the Page Audits workspace
 - `/projects/:id/audit/:auditId`
 - `/projects/:id/bugs`
 - `/projects/:id/test-cases`

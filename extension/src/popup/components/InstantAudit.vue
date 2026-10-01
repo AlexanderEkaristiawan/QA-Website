@@ -66,11 +66,11 @@ async function collectInTabAudit() {
   const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
   const transferBytes = resources.reduce((sum, entry) => sum + (entry.transferSize || 0), 0)
   const longTaskMs = performance.getEntriesByType('longtask').reduce((sum, entry) => sum + entry.duration, 0)
-  const images = [...document.images]
+  const images = Array.from(document.images)
   const missingAlt = images.filter(image => !image.hasAttribute('alt')).length
-  const unnamedButtons = [...document.querySelectorAll('button,[role="button"]')]
+  const unnamedButtons = Array.from(document.querySelectorAll('button,[role="button"]'))
     .filter(el => !((el.textContent || '').trim() || el.getAttribute('aria-label') || el.getAttribute('aria-labelledby'))).length
-  const unlabeledInputs = [...document.querySelectorAll('input:not([type="hidden"]),select,textarea')]
+  const unlabeledInputs = Array.from(document.querySelectorAll('input:not([type="hidden"]),select,textarea'))
     .filter(el => !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby') &&
       !(el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) && !el.closest('label')).length
   const titleLength = document.title.trim().length
@@ -78,9 +78,9 @@ async function collectInTabAudit() {
   const h1Count = document.querySelectorAll('h1').length
   const canonical = Boolean(document.querySelector('link[rel="canonical"]'))
   const viewport = Boolean(document.querySelector('meta[name="viewport"]'))
-  const mixedContent = location.protocol === 'https:' && [...document.querySelectorAll('[src],[href]')]
+  const mixedContent = location.protocol === 'https:' && Array.from(document.querySelectorAll('[src],[href]'))
     .some(el => /^(http):\/\//i.test(el.getAttribute('src') || el.getAttribute('href') || ''))
-  const unsafeBlankLinks = [...document.querySelectorAll('a[target="_blank"]')]
+  const unsafeBlankLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]'))
     .filter(link => !/\bnoopener\b/i.test(link.rel)).length
 
   if (fcp > 1800) add('local-fcp', 'First Contentful Paint is slow', 'The page took over 1.8 seconds to render its first content.', `${(fcp / 1000).toFixed(1)} s`)
@@ -517,23 +517,23 @@ async function saveToProject() {
         </p>
 
         <!-- 3 Quick Audit Action Buttons -->
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid min-w-0 grid-cols-3 gap-1.5">
           <!-- 1. SEO Audit Button -->
           <button
             type="button"
             @click="runDirectSeo"
             :disabled="runningSeo || !config.apiToken"
-            class="p-2 rounded-lg border text-left transition-all hover:border-indigo-300 hover:shadow-xs flex flex-col justify-between"
+            class="min-w-0 p-1.5 rounded-lg border text-left transition-all hover:border-indigo-300 hover:shadow-xs flex flex-col justify-between"
             :class="runningSeo ? 'bg-indigo-50/50 border-indigo-300' : 'bg-white border-gray-200'"
           >
             <div class="flex items-center justify-between w-full">
-              <span class="text-[11px] font-bold text-gray-800">🔍 SEO</span>
+              <span class="min-w-0 truncate whitespace-nowrap text-[10px] font-bold text-gray-800">🔍 SEO</span>
               <span v-if="runningSeo" class="animate-spin text-xs text-indigo-600">⟳</span>
-              <span v-else-if="seoResult" class="text-[10px] font-bold px-1.5 py-0.2 rounded" :class="seoResult.score >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'">
+              <span v-else-if="seoResult" class="shrink-0 text-[9px] leading-none font-bold px-1 py-1 rounded" :class="seoResult.score >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'">
                 {{ seoResult.score }}
               </span>
             </div>
-            <span class="text-[9px] text-gray-400 mt-1 block">
+            <span class="mt-1 block truncate whitespace-nowrap text-[9px] text-gray-400">
               {{ runningSeo ? 'Auditing...' : seoResult ? `${seoResult.issuesCount} issues` : 'Run audit' }}
             </span>
           </button>
@@ -543,17 +543,17 @@ async function saveToProject() {
             type="button"
             @click="runInTabAudit"
             :disabled="runningPageSpeed || !config.apiToken"
-            class="p-2 rounded-lg border text-left transition-all hover:border-amber-300 hover:shadow-xs flex flex-col justify-between"
+            class="min-w-0 p-1.5 rounded-lg border text-left transition-all hover:border-amber-300 hover:shadow-xs flex flex-col justify-between"
             :class="runningPageSpeed ? 'bg-amber-50/50 border-amber-300' : 'bg-white border-gray-200'"
           >
             <div class="flex items-center justify-between w-full">
-              <span class="text-[11px] font-bold text-gray-800">⚡ In-tab Audit</span>
+              <span class="min-w-0 flex-1 truncate whitespace-nowrap text-[10px] font-bold text-gray-800">⚡ In-tab Audit</span>
               <span v-if="runningPageSpeed" class="animate-spin text-xs text-amber-600">⟳</span>
-              <span v-else-if="pageSpeedResult" class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+              <span v-else-if="pageSpeedResult" class="shrink-0 text-[9px] leading-none font-bold px-1 py-1 rounded bg-amber-100 text-amber-800">
                 {{ pageSpeedResult.perf ?? '—' }}
               </span>
             </div>
-            <span class="text-[9px] text-gray-400 mt-1 block">
+            <span class="mt-1 block truncate whitespace-nowrap text-[9px] text-gray-400">
               {{ runningPageSpeed ? 'Auditing live tab...' : pageSpeedResult ? `Perf / A11y` : 'In-tab checks' }}
             </span>
           </button>
@@ -563,17 +563,17 @@ async function saveToProject() {
             type="button"
             @click="runDirectZapSecurity"
             :disabled="runningSecurity || !config.apiToken"
-            class="p-2 rounded-lg border text-left transition-all hover:border-rose-300 hover:shadow-xs flex flex-col justify-between"
+            class="min-w-0 p-1.5 rounded-lg border text-left transition-all hover:border-rose-300 hover:shadow-xs flex flex-col justify-between"
             :class="runningSecurity ? 'bg-rose-50/50 border-rose-300' : 'bg-white border-gray-200'"
           >
             <div class="flex items-center justify-between w-full">
-              <span class="text-[11px] font-bold text-gray-800">🛡️ ZAP</span>
+              <span class="min-w-0 truncate whitespace-nowrap text-[10px] font-bold text-gray-800">🛡️ ZAP</span>
               <span v-if="runningSecurity" class="animate-spin text-xs text-rose-600">⟳</span>
-              <span v-else-if="zapResult" class="text-[10px] font-bold px-1.5 py-0.2 rounded" :class="zapResult.high > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'">
+              <span v-else-if="zapResult" class="shrink-0 text-[8px] leading-none font-bold px-1 py-1 rounded" :class="zapResult.high > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'">
                 {{ zapResult.high }}H / {{ zapResult.med }}M
               </span>
             </div>
-            <span class="text-[9px] text-gray-400 mt-1 block">
+            <span class="mt-1 block truncate whitespace-nowrap text-[9px] text-gray-400">
               {{ runningSecurity ? 'Scanning...' : zapResult ? 'Scan done' : 'Header / ZAP' }}
             </span>
           </button>

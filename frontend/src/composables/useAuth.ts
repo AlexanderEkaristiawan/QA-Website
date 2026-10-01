@@ -50,6 +50,15 @@ export function useAuthStore() {
     currentUser.value = null
   }
 
+  async function updateDisplayName(displayName: string) {
+    const name = displayName.trim()
+    if (!name) throw new Error('Please enter a display name.')
+    if (!auth.currentUser) throw new Error('You need to be signed in to update your profile.')
+
+    await updateProfile(auth.currentUser, { displayName: name })
+    if (currentUser.value) currentUser.value = { ...currentUser.value, displayName: name }
+  }
+
   return {
     currentUser,
     loading,
@@ -58,6 +67,7 @@ export function useAuthStore() {
     login,
     register,
     logout,
+    updateDisplayName,
   }
 }
 

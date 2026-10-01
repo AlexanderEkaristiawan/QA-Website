@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import type { ExtensionConfig, CrawlSession, ExtMessage, RecordedPage, RecordingSession } from '@/types'
 
 const props = defineProps<{
@@ -15,6 +15,22 @@ const recordedPages = ref<RecordedPage[]>([])
 const recordingTabId = ref<number | null>(null)
 const recordingCurrentUrl = ref('')
 const recordingMsg = ref('')
+const projectPages = ref<Array<{
+  id: string
+  url: string
+  path: string
+  title: string
+  source: string
+  statusCode: number | null
+  seoScore: number | null
+  seoStatus: string
+  issueCount: number
+  pageSpeedScores: { performance: number | null } | null
+  securityAudit: { status: string; highAlerts: number; mediumAlerts: number; lowAlerts: number } | null
+}>>([])
+const projectPagesLoading = ref(false)
+const projectPagesError = ref('')
+let projectPagesPoll: ReturnType<typeof setInterval> | null = null
 
 // ── Automated BFS Crawl State ────────────────────────────────────────────────
 const startUrl = ref('')
@@ -53,11 +69,43 @@ onMounted(async () => {
   }
 
   chrome.runtime.onMessage.addListener(handleMessage)
+  void loadProjectPages()
+  projectPagesPoll = setInterval(() => { void loadProjectPages() }, 10000)
 })
 
 onUnmounted(() => {
   chrome.runtime.onMessage.removeListener(handleMessage)
+  if (projectPagesPoll) clearInterval(projectPagesPoll)
 })
+
+watch(() => [props.config.apiBaseUrl, props.config.apiToken, props.config.projectId], () => {
+  void loadProjectPages()
+})
+
+async function loadProjectPages() {
+  if (!props.config.apiBaseUrl || !props.config.apiToken || !props.config.projectId) {
+    projectPages.value = []
+    projectPagesError.value = ''
+    return
+  }
+
+  projectPagesLoading.value = projectPages.value.length === 0
+  try {
+    const url = `${props.config.apiBaseUrl}/list-page-audits?projectId=${encodeURIComponent(props.config.projectId)}`
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${props.config.apiToken}` },
+      cache: 'no-store',
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`)
+    projectPages.value = Array.isArray(result.pages) ? result.pages : []
+    projectPagesError.value = ''
+  } catch (err: any) {
+    projectPagesError.value = err.message || 'Could not sync project pages.'
+  } finally {
+    projectPagesLoading.value = false
+  }
+}
 
 function handleMessage(msg: ExtMessage) {
   if (msg.type === 'CRAWL_PROGRESS') {
@@ -75,6 +123,7 @@ function handleMessage(msg: ExtMessage) {
     if (!recordedPages.value.some(p => p.url === msg.page.url && Math.abs(p.timestamp - msg.page.timestamp) < 2000)) {
       recordedPages.value = [msg.page, ...recordedPages.value]
     }
+    setTimeout(() => { void loadProjectPages() }, 700)
   } else if (msg.type === 'RECORDING_STATE') {
     recordingSession.value = msg.session
     recording.value = msg.session.isRecording
@@ -229,9 +278,9 @@ async function stopCrawl() {
         :class="activeTab === 'record' ? 'bg-white shadow-sm text-indigo-700' : 'text-gray-600 hover:text-gray-900'"
       >
         <span class="w-2 h-2 rounded-full" :class="recording ? 'bg-rose-500 animate-ping' : 'bg-rose-400'"></span>
-        <span>Record Redirects</span>
-        <span v-if="recordedPages.length > 0" class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-mono">
-          {{ recordedPages.length }}
+        <span>Manual Record Redirects</span>
+        <span v-if="projectPages.length > 0" class="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-50 text-indigo-700 font-mono">
+          {{ projectPages.length }}
         </span>
       </button>
 
@@ -307,65 +356,69 @@ async function stopCrawl() {
         </div>
       </div>
 
-      <!-- Live Recorded URLs Feed -->
+      <!-- Synced project page audits -->
       <div class="card p-3 space-y-2">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
-            <span class="text-xs font-bold text-gray-900">Recorded Pages</span>
+            <span class="text-xs font-bold text-gray-900">Project Page Audits</span>
             <span class="text-[11px] font-mono px-1.5 py-0.2 rounded-full bg-gray-100 text-gray-700 font-semibold">
-              {{ recordedPages.length }}
+              {{ projectPages.length }}
             </span>
           </div>
 
           <button
-            v-if="recordedPages.length > 0"
-            @click="clearRecordedHistory"
-            class="text-[10px] text-gray-400 hover:text-gray-600 underline"
+            type="button"
+            @click="loadProjectPages"
+            :disabled="projectPagesLoading"
+            class="text-[10px] text-indigo-600 hover:text-indigo-800 underline disabled:opacity-50"
           >
-            Clear History
+            {{ projectPagesLoading ? 'Syncing…' : 'Refresh' }}
           </button>
         </div>
 
-        <!-- Empty State -->
-        <div v-if="recordedPages.length === 0" class="p-6 text-center text-gray-400 text-xs border border-dashed rounded-lg">
-          <p class="text-xl mb-1">🧭</p>
-          <p class="font-medium text-gray-600">No navigation recorded yet</p>
-          <p class="text-[10px] text-gray-400 mt-0.5">
-            Click "Start Recording Navigation" and click through your application.
-          </p>
+        <div v-if="projectPagesError" class="rounded border border-rose-200 bg-rose-50 p-2.5 text-[11px] text-rose-700">
+          Could not sync with Page Audits: {{ projectPagesError }}
         </div>
 
-        <!-- Feed List -->
-        <div v-else class="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
+        <div v-else-if="!config.projectId || !config.apiToken" class="rounded border border-dashed p-4 text-center text-[11px] text-gray-500">
+          Connect a project to load its tracked pages.
+        </div>
+
+        <div v-else-if="projectPagesLoading && projectPages.length === 0" class="p-5 text-center text-xs text-gray-400">
+          Syncing project pages…
+        </div>
+
+        <div v-else-if="projectPages.length === 0" class="rounded border border-dashed p-5 text-center text-xs text-gray-400">
+          No tracked pages in this project yet. Recorded URLs and audits will appear here after syncing.
+        </div>
+
+        <div v-else class="space-y-1.5 max-h-80 overflow-y-auto pr-0.5">
           <div
-            v-for="(page, idx) in recordedPages"
-            :key="page.url + page.timestamp"
+            v-for="page in projectPages"
+            :key="page.id || page.url"
             class="p-2 rounded-md border border-gray-100 bg-gray-50 hover:bg-white hover:border-indigo-200 transition-all text-xs space-y-1"
           >
             <div class="flex items-center justify-between gap-1">
               <div class="flex items-center gap-1.5 min-w-0">
-                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-green-100 text-green-800">
-                  {{ page.statusCode || 200 }}
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-bold" :class="page.statusCode && page.statusCode >= 400 ? 'bg-rose-100 text-rose-800' : 'bg-green-100 text-green-800'">
+                  {{ page.statusCode ?? '—' }}
                 </span>
-                <span class="font-bold text-gray-900 truncate text-[11px]">
+                <span class="font-bold text-gray-900 truncate text-[11px]" :title="page.title">
                   {{ page.title || page.path }}
                 </span>
               </div>
-              <span class="text-[10px] text-emerald-600 font-medium flex-shrink-0 flex items-center gap-0.5">
-                <span>✓</span>
-                <span>Synced</span>
-              </span>
+              <span class="shrink-0 rounded bg-white px-1.5 py-0.5 text-[9px] text-gray-500">{{ page.source }}</span>
             </div>
 
-            <!-- Path & URL -->
             <div class="text-[10px] font-mono text-gray-500 truncate" :title="page.url">
               {{ page.url }}
             </div>
 
-            <!-- Redirect indicator if applicable -->
-            <div v-if="page.redirectFrom" class="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded flex items-center gap-1 font-mono truncate" :title="page.redirectFrom">
-              <span>↳ Redirected from:</span>
-              <span class="truncate">{{ page.redirectFrom }}</span>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-gray-200 pt-1 text-[9px] text-gray-600">
+              <span>SEO: <strong :class="page.seoStatus === 'good' ? 'text-emerald-700' : page.seoStatus === 'not-audited' ? 'text-gray-500' : 'text-amber-700'">{{ page.seoScore ?? page.seoStatus }}</strong></span>
+              <span v-if="page.issueCount">{{ page.issueCount }} SEO issues</span>
+              <span v-if="page.pageSpeedScores">Perf: <strong>{{ page.pageSpeedScores.performance ?? '—' }}</strong></span>
+              <span v-if="page.securityAudit">ZAP: <strong>{{ page.securityAudit.highAlerts }}H / {{ page.securityAudit.mediumAlerts }}M / {{ page.securityAudit.lowAlerts }}L</strong></span>
             </div>
           </div>
         </div>

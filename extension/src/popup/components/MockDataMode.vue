@@ -7,7 +7,7 @@ const props = defineProps<{
 }>();
 
 const category = ref<
-  "text" | "boundary" | "users" | "security" | "financial" | "custom"
+  "text" | "boundary" | "users" | "security" | "financial"
 >("text");
 const customPrompt = ref("");
 const format = ref<"json" | "csv" | "list">("list");
@@ -511,21 +511,6 @@ async function autofillActivePageInput() {
             </div>
           </div>
         </button>
-
-        <button
-          type="button"
-          @click="category = 'custom'"
-          class="btn category-button text-left p-2 flex items-center gap-2 text-xs"
-          :class="category === 'custom' ? 'btn-primary' : 'btn-secondary'"
-        >
-          <span>✨</span>
-          <div class="min-w-0">
-            <div class="font-semibold leading-tight">Custom Prompt</div>
-            <div class="text-[9px] opacity-80 truncate">
-              AI-generated schema & rules
-            </div>
-          </div>
-        </button>
       </div>
     </div>
 
@@ -758,19 +743,7 @@ async function autofillActivePageInput() {
     <!-- ========================================================== -->
     <!-- Specific Controls: Other categories (Boundary, Users, etc.) -->
     <!-- ========================================================== -->
-    <div v-else class="card controls-card compact-controls">
-      <div v-if="category === 'custom'" class="space-y-1">
-        <label class="block text-[11px] font-semibold text-gray-600"
-          >Requirement Prompt</label
-        >
-        <input
-          v-model="customPrompt"
-          class="input text-xs"
-          placeholder="e.g. 5 Indonesian addresses with postal codes and latitude/longitude"
-        />
-      </div>
-
-      <div class="grid grid-cols-2 gap-2">
+    <div v-else class="card controls-card compact-controls"><div class="grid grid-cols-2 gap-2">
         <div>
           <label
             class="block text-[10px] font-semibold text-gray-600 uppercase tracking-wider mb-1"

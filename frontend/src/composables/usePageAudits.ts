@@ -59,8 +59,8 @@ export function usePageAudits() {
 
   /**
    * Run PageSpeed Insights for a specific URL.
-   * Calls Netlify function if reachable, and falls back directly to the Google
-   * PageSpeed Insights public REST endpoint.
+   * Netlify runs the Lighthouse request in a background function, then the
+   * browser polls for the completed result.
    */
   async function runSinglePageSpeed(url: string, strategy: 'mobile' | 'desktop' = 'mobile'): Promise<{
     pageSpeedScores: {
@@ -80,28 +80,63 @@ export function usePageAudits() {
   } | null> {
     auditingPerfUrl.value = url
     auditError.value = null
+    let backgroundJobAccepted = false
 
-    // Attempt 1: Call Netlify Function
     try {
       const response = await fetch(`${NETLIFY_BASE}/audit-page-speed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, strategy }),
       })
+      const start = await response.json().catch(() => ({}))
 
-      if (response.ok) {
-        const res = await response.json()
+      if (response.ok && start.auditId) {
+        backgroundJobAccepted = true
+        for (let attempt = 0; attempt < 180; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          const statusResponse = await fetch(`${NETLIFY_BASE}/audit-page-speed-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auditId: start.auditId }),
+          })
+          const status = await statusResponse.json().catch(() => ({}))
+
+          if (!statusResponse.ok) {
+            throw new Error(status.error || `Could not read PageSpeed audit status (${statusResponse.status})`)
+          }
+          if (status.status === 'completed' && status.result) {
+            auditingPerfUrl.value = null
+            return {
+              pageSpeedScores: status.result.scores,
+              pageSpeedMetrics: status.result.metrics,
+              pageSpeedFindings: status.result.performanceFindings || [],
+            }
+          }
+          if (status.status === 'failed') {
+            throw new Error(status.error || 'PageSpeed audit failed')
+          }
+        }
+        throw new Error('PageSpeed is taking longer than expected. Please try again shortly.')
+      }
+      if (response.ok && start.data?.scores) {
+        auditingPerfUrl.value = null
         return {
-          pageSpeedScores: res.data.scores,
-          pageSpeedMetrics: res.data.metrics,
-          pageSpeedFindings: res.data.performanceFindings || [],
+          pageSpeedScores: start.data.scores,
+          pageSpeedMetrics: start.data.metrics,
+          pageSpeedFindings: start.data.performanceFindings || [],
         }
       }
-    } catch {
-      // Fall through to direct Google PageSpeed call
+      throw new Error(start.error || `PageSpeed audit could not start (${response.status})`)
+    } catch (err: any) {
+      if (backgroundJobAccepted) {
+        auditError.value = err.message || 'PageSpeed audit failed'
+        auditingPerfUrl.value = null
+        return null
+      }
+      console.warn('Background PageSpeed audit unavailable, attempting direct API fallback:', err.message)
     }
 
-    // Attempt 2: Direct public Google PageSpeed Insights REST call (CORS supported)
+    // Keep direct API fallback for environments without working Netlify functions.
     try {
       const categories = ['performance', 'accessibility', 'best-practices', 'seo']
       const catQuery = categories.map(c => `category=${c}`).join('&')

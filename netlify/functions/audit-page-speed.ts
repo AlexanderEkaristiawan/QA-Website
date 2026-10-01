@@ -1,127 +1,67 @@
 import type { Handler, HandlerEvent } from '@netlify/functions'
-import { jsonResponse } from './_shared/firestore'
-import axios from 'axios'
-
-interface PageSpeedCategory {
-  score: number | null
-  auditRefs?: Array<{ id: string; weight?: number }>
-}
-
-interface PageSpeedAudit {
-  title?: string
-  description?: string
-  displayValue?: string
-  score?: number | null
-  scoreDisplayMode?: string
-  details?: { overallSavingsMs?: number; overallSavingsBytes?: number }
-}
-
-interface PageSpeedResponse {
-  categories?: {
-    performance?: PageSpeedCategory
-    accessibility?: PageSpeedCategory
-    'best-practices'?: PageSpeedCategory
-    seo?: PageSpeedCategory
-  }
-  lighthouseResult?: {
-    categories?: {
-      performance?: PageSpeedCategory
-      accessibility?: PageSpeedCategory
-      'best-practices'?: PageSpeedCategory
-      seo?: PageSpeedCategory
-    }
-    audits?: Record<string, PageSpeedAudit & { numericValue?: number }>
-  }
-}
-
-function toScore(cat?: PageSpeedCategory): number {
-  if (!cat || cat.score === null) return 0
-  return Math.round(cat.score * 100)
-}
+import { randomUUID } from 'crypto'
+import { getDb, jsonResponse } from './_shared/firestore'
 
 export const handler: Handler = async (event: HandlerEvent) => {
   const origin = event.headers.origin
+  let auditRef: FirebaseFirestore.DocumentReference | undefined
 
-  if (event.httpMethod === 'OPTIONS') {
-    return jsonResponse(204, {}, origin)
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return jsonResponse(405, { error: 'Method not allowed' }, origin)
-  }
+  if (event.httpMethod === 'OPTIONS') return jsonResponse(204, {}, origin)
+  if (event.httpMethod !== 'POST') return jsonResponse(405, { error: 'Method not allowed' }, origin)
 
   try {
-    const body = JSON.parse(event.body || '{}')
-    const { url, strategy = 'mobile' } = body
-
-    if (!url) {
+    const { url, strategy = 'mobile' } = JSON.parse(event.body || '{}')
+    if (typeof url !== 'string' || !url.trim()) {
       return jsonResponse(400, { error: 'URL is required' }, origin)
     }
 
-    const apiKey = process.env.PAGESPEED_API_KEY
-    const requestedCategories = ['performance', 'accessibility', 'best-practices', 'seo']
-    const catParams = requestedCategories.map(c => `category=${c}`).join('&')
-
-    const apiUrl = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(
-      url
-    )}&strategy=${strategy}&${catParams}${apiKey ? `&key=${apiKey}` : ''}`
-
-    const response = await axios.get<PageSpeedResponse>(apiUrl, { timeout: 35000 })
-    const data = response.data
-    const scoreCategories = data.lighthouseResult?.categories ?? data.categories
-
-    const scores = {
-      performance: toScore(scoreCategories?.performance),
-      accessibility: toScore(scoreCategories?.accessibility),
-      bestPractices: toScore(scoreCategories?.['best-practices']),
-      seo: toScore(scoreCategories?.seo),
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(url)
+    } catch {
+      return jsonResponse(400, { error: 'Enter a valid page URL' }, origin)
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return jsonResponse(400, { error: 'PageSpeed supports HTTP and HTTPS URLs only' }, origin)
     }
 
-    const audits = data.lighthouseResult?.audits || {}
-    const metrics = {
-      fcp: Math.round(audits['first-contentful-paint']?.numericValue || 0),
-      lcp: Math.round(audits['largest-contentful-paint']?.numericValue || 0),
-      cls: Number((audits['cumulative-layout-shift']?.numericValue || 0).toFixed(3)),
-      speedIndex: Math.round(audits['speed-index']?.numericValue || 0),
-      tti: Math.round(audits['interactive']?.numericValue || 0),
-    }
-    const performanceFindings = (scoreCategories?.performance?.auditRefs || [])
-      .filter((auditRef) => (auditRef.weight || 0) > 0)
-      .map((auditRef) => {
-        const audit = audits[auditRef.id]
-        if (!audit || audit.score === null || audit.score === undefined || audit.score >= 1 || audit.scoreDisplayMode === 'notApplicable') return null
-        return {
-          id: auditRef.id,
-          title: audit.title || auditRef.id,
-          description: audit.description || '',
-          displayValue: audit.displayValue,
-          score: audit.score,
-          savingsMs: audit.details?.overallSavingsMs,
-          savingsBytes: audit.details?.overallSavingsBytes,
-        }
-      })
-      .filter((finding): finding is NonNullable<typeof finding> => finding !== null)
+    const auditId = randomUUID()
+    const db = getDb()
+    auditRef = db.collection('page_speed_audits').doc(auditId)
+    await auditRef.set({
+      status: 'pending',
+      url: parsedUrl.toString(),
+      strategy: strategy === 'desktop' ? 'desktop' : 'mobile',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    })
 
-    return jsonResponse(
-      200,
-      {
-        success: true,
-        data: {
-          url,
-          scores,
-          metrics,
-          performanceFindings,
-          auditedAt: new Date().toISOString(),
-        },
-      },
-      origin
-    )
+    const host = event.headers.host
+    if (!host) throw new Error('Could not determine the function host for the background audit')
+    const protocol = event.headers['x-forwarded-proto'] || (host.startsWith('localhost') ? 'http' : 'https')
+    const workerUrl = `${protocol}://${host}/.netlify/functions/audit-page-speed-background`
+    const trigger = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auditId }),
+      signal: AbortSignal.timeout(8000),
+    })
+
+    if (!trigger.ok && trigger.status !== 202) {
+      const detail = await trigger.text().catch(() => '')
+      throw new Error(detail || `Could not start the background PageSpeed audit (${trigger.status})`)
+    }
+
+    return jsonResponse(202, { success: true, auditId, status: 'pending' }, origin)
   } catch (err: any) {
-    console.error('audit-page-speed error:', err)
-    return jsonResponse(
-      500,
-      { error: err.response?.data?.error?.message || err.message || 'PageSpeed audit failed' },
-      origin
-    )
+    console.error('audit-page-speed start error:', err)
+    if (auditRef) {
+      await auditRef.update({
+        status: 'failed',
+        error: err.message || 'Could not start PageSpeed audit',
+        completedAt: new Date().toISOString(),
+      }).catch(() => {})
+    }
+    return jsonResponse(500, { error: err.message || 'Could not start PageSpeed audit' }, origin)
   }
 }

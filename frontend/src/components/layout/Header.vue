@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/composables/useAuth";
 import { useNotificationStore } from "@/composables/useFirestore";
 import type { Notification } from "@/types";
@@ -11,6 +11,7 @@ const emit = defineEmits<{ "toggle-sidebar": [] }>();
 
 const authStore = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 const notificationStore = useNotificationStore();
 
 const showUserDropdown = ref(false);
@@ -22,6 +23,7 @@ const unreadCount = computed(
   () => notifications.value.filter((n) => !n.read).length,
 );
 const recentNotifications = computed(() => notifications.value.slice(0, 5));
+const pageTitle = computed(() => route.name === "ProfileSettings" ? "Profile Settings" : String(route.name || ""));
 
 function handleOutsideClick(e: MouseEvent) {
   const target = e.target as HTMLElement;
@@ -55,6 +57,11 @@ const handleLogout = async () => {
   await authStore.logout();
   router.push("/login");
 };
+
+function openProfileSettings() {
+  showUserDropdown.value = false;
+  router.push("/settings/profile");
+}
 
 const toggleNotificationDropdown = () => {
   showNotificationDropdown.value = !showNotificationDropdown.value;
@@ -152,7 +159,7 @@ function getNotificationIcon(title: string, message: string) {
         <i class="fa-solid fa-bars text-lg"></i>
       </button>
       <h2 class="min-w-0 truncate text-xl font-semibold text-gray-800">
-        {{ $route.name }}
+        {{ pageTitle }}
       </h2>
     </div>
     <div class="flex items-center gap-2 sm:gap-4">
@@ -296,12 +303,12 @@ function getNotificationIcon(title: string, message: string) {
             class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-primary-700 text-sm font-semibold"
           >
             {{
-              authStore.currentUser?.displayName?.charAt(0)?.toUpperCase() ||
+              authStore.currentUser.value?.displayName?.charAt(0)?.toUpperCase() ||
               "U"
             }}
           </div>
           <span class="hidden text-sm font-medium text-gray-700 sm:inline">{{
-            authStore.currentUser?.displayName || "User"
+            authStore.currentUser.value?.displayName || "User"
           }}</span>
           <i
             class="fa-solid fa-chevron-down text-xs text-gray-400 hidden sm:inline"
@@ -315,9 +322,17 @@ function getNotificationIcon(title: string, message: string) {
           <div class="px-4 py-2 border-b border-gray-100">
             <p class="text-xs text-gray-500">Signed in as</p>
             <p class="text-sm font-medium text-gray-900 truncate">
-              {{ authStore.currentUser?.email }}
+              {{ authStore.currentUser.value?.email }}
             </p>
           </div>
+          <button
+            type="button"
+            @click="openProfileSettings"
+            class="flex w-full items-center px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <i class="fa-solid fa-user-pen mr-2 text-xs text-gray-400"></i>
+            <span>Profile settings</span>
+          </button>
           <button
             @click="handleLogout"
             class="flex items-center w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-gray-50"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore, useAuditStore, usePageStore } from '@/composables/useFirestore'
 import { usePageAudits } from '@/composables/usePageAudits'
@@ -12,9 +12,9 @@ const router = useRouter()
 const projectStore = useProjectStore()
 const auditStore = useAuditStore()
 const pageStore = usePageStore()
-const { auditingSeoUrl, auditingPerfUrl, auditingSecurityUrl, runSinglePageSEO, runSinglePageSpeed, runSinglePageSecurity } = usePageAudits()
+const { auditingSeoUrl, auditingPerfUrl, auditingSecurityUrl, auditError, runSinglePageSEO, runSinglePageSpeed, runSinglePageSecurity } = usePageAudits()
 
-const projectId = route.params.id as string
+let projectId = route.params.id as string
 const project = ref<Project | null>(null)
 const pages = ref<ProjectPage[]>([])
 const loading = ref(true)
@@ -126,11 +126,24 @@ const batchProgress = ref({ current: 0, total: 0 })
 
 let unsubscribe: (() => void) | null = null
 
-onMounted(async () => {
-  try {
-    project.value = await projectStore.getProject(projectId)
+watch(() => route.params.id, async (routeId) => {
+  if (typeof routeId !== 'string') return
 
-    unsubscribe = pageStore.subscribeProjectPages(projectId, async (loadedPages) => {
+  unsubscribe?.()
+  unsubscribe = null
+  projectId = routeId
+  project.value = null
+  pages.value = []
+  loading.value = true
+
+  try {
+    const loadedProject = await projectStore.getProject(routeId)
+    if (route.params.id !== routeId) return
+    project.value = loadedProject
+    if (!loadedProject) return
+
+    unsubscribe = pageStore.subscribeProjectPages(routeId, async (loadedPages) => {
+      if (route.params.id !== routeId) return
       if (loadedPages.length === 0 && project.value?.targetUrl) {
         await seedInitialPages()
       } else {
@@ -141,11 +154,9 @@ onMounted(async () => {
   } catch (err) {
     console.error('PageAudits load error:', err)
   } finally {
-    setTimeout(() => {
-      loading.value = false
-    }, 1000)
+    if (route.params.id === routeId) loading.value = false
   }
-})
+}, { immediate: true })
 
 onUnmounted(() => {
   unsubscribe?.()
@@ -600,6 +611,11 @@ function getScoreBgBadge(score: number | null | undefined): string {
       </div>
     </div>
 
+    <div v-if="auditError" role="alert" class="flex items-start justify-between gap-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+      <span>{{ auditError }}</span>
+      <button type="button" class="shrink-0 font-semibold hover:text-rose-950" @click="auditError = null">Dismiss</button>
+    </div>
+
     <!-- Quick Stats Cards -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
       <div class="card p-3.5">
@@ -700,7 +716,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
             <tr>
               <th scope="col" class="py-3 px-4">Page URL &amp; Path</th>
               <th scope="col" class="py-3 px-4">SEO Audit Result</th>
-              <th scope="col" class="py-3 px-4 min-w-[240px]">
+              <th scope="col" class="py-3 px-4 min-w-[280px]">
                 <div class="flex items-center gap-1">
                 <span>Performance Scores</span>
                 </div>
@@ -834,29 +850,29 @@ function getScoreBgBadge(score: number | null | undefined): string {
                   <span v-if="page.pageSpeedAuditType === 'in-tab-lighthouse-style'" class="inline-flex rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-semibold text-indigo-700">
                     In-tab Lighthouse-style audit
                   </span>
-                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-1 text-center">
+                  <div class="grid grid-cols-4 gap-1.5 text-center">
                     <!-- Performance -->
-                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.performance)">
-                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.performance ?? '—' }}</span>
-                      <span class="text-[8px] font-semibold leading-tight opacity-75">Performance</span>
+                    <div class="flex min-w-0 min-h-[48px] flex-col items-center justify-center px-1 py-1.5 rounded-md border shadow-sm" :class="getScoreColorClass(page.pageSpeedScores.performance)">
+                      <span class="text-xs leading-none font-black">{{ page.pageSpeedScores.performance ?? '—' }}</span>
+                      <span class="mt-1 block w-full truncate text-[9px] font-semibold leading-[1.1] opacity-80" title="Performance">Performance</span>
                     </div>
 
                     <!-- Accessibility -->
-                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.accessibility)">
-                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.accessibility ?? '—' }}</span>
-                      <span class="text-[8px] font-semibold leading-tight opacity-75">Accessibility</span>
+                    <div class="flex min-w-0 min-h-[48px] flex-col items-center justify-center px-1 py-1.5 rounded-md border shadow-sm" :class="getScoreColorClass(page.pageSpeedScores.accessibility)">
+                      <span class="text-xs leading-none font-black">{{ page.pageSpeedScores.accessibility ?? '—' }}</span>
+                      <span class="mt-1 block w-full truncate text-[9px] font-semibold leading-[1.1] opacity-80" title="Accessibility">Accessibility</span>
                     </div>
 
                     <!-- Best Practices -->
-                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.bestPractices)">
-                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.bestPractices ?? '—' }}</span>
-                      <span class="text-[8px] font-semibold leading-tight opacity-75">Best Practices</span>
+                    <div class="flex min-w-0 min-h-[48px] flex-col items-center justify-center px-1 py-1.5 rounded-md border shadow-sm" :class="getScoreColorClass(page.pageSpeedScores.bestPractices)">
+                      <span class="text-xs leading-none font-black">{{ page.pageSpeedScores.bestPractices ?? '—' }}</span>
+                      <span class="mt-1 block w-full truncate text-[9px] font-semibold leading-[1.1] opacity-80" title="Best Practices">Best Practices</span>
                     </div>
 
                     <!-- SEO -->
-                    <div class="flex min-w-0 flex-col items-center px-0.5 py-1 rounded border" :class="getScoreColorClass(page.pageSpeedScores.seo)">
-                      <span class="text-[11px] leading-tight font-black">{{ page.pageSpeedScores.seo ?? '—' }}</span>
-                      <span class="text-[8px] font-semibold leading-tight opacity-75">SEO</span>
+                    <div class="flex min-w-0 min-h-[48px] flex-col items-center justify-center px-1 py-1.5 rounded-md border shadow-sm" :class="getScoreColorClass(page.pageSpeedScores.seo)">
+                      <span class="text-xs leading-none font-black">{{ page.pageSpeedScores.seo ?? '—' }}</span>
+                      <span class="mt-1 block w-full truncate text-[9px] font-semibold leading-[1.1] opacity-80" title="SEO">SEO</span>
                     </div>
                   </div>
 
