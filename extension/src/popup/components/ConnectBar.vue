@@ -39,7 +39,14 @@ async function verifyConnection(config: ExtensionConfig) {
       connectionState.value = 'connected'
       return
     }
-    const body = await response.json().catch(() => ({}))
+    const responseText = await response.text()
+    const cleanResponseText = responseText.replace(/^\uFEFF/, '').replace(/^ï»¿/, '')
+    let body: { error?: string } = {}
+    try {
+      body = JSON.parse(cleanResponseText || '{}')
+    } catch {
+      body.error = cleanResponseText.slice(0, 160) || 'The server returned an invalid response.'
+    }
     connectionState.value = 'disconnected'
     connectionError.value = body.error || `Connection failed (HTTP ${response.status})`
   } catch (err: any) {

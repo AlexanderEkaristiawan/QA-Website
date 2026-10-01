@@ -1,6 +1,6 @@
 {
   "name": "qa-suite-extension",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "QA-Suite Chrome Extension — Manifest V3, Vue 3 + TypeScript",
   "type": "module",

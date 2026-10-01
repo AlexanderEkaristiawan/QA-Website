@@ -24,7 +24,10 @@ function initAdmin(): admin.app.App {
   } 
   // Option 2: Single JSON or Base64 string
   else if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-    let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim()
+    let serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+      .trim()
+      .replace(/^\uFEFF/, '')
+      .replace(/^ï»¿/, '')
     if (!serviceAccountJson.startsWith('{')) {
       try {
         serviceAccountJson = Buffer.from(serviceAccountJson, 'base64').toString('utf8')

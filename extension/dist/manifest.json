@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QA-Suite Companion",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Instant single-page audits and multi-page authenticated crawls for QA-Suite projects.",
   "icons": {
     "16": "assets/icon16.png",
