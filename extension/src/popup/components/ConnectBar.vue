@@ -10,6 +10,7 @@ const baseUrl = ref('')
 const token = ref('')
 const projectId = ref('')
 const savedMsg = ref(false)
+const connectionError = ref('')
 const connectionState = ref<'unknown' | 'checking' | 'connected' | 'disconnected'>('unknown')
 const isConnected = computed(() => connectionState.value === 'connected')
 const projectLabel = computed(() => props.config.projectId ? `Project ${props.config.projectId.slice(0, 12)}` : 'No project connected')
@@ -24,17 +25,26 @@ watch(() => props.config, (config) => {
 async function verifyConnection(config: ExtensionConfig) {
   if (!config.apiBaseUrl || !config.apiToken || !config.projectId) {
     connectionState.value = 'disconnected'
+    connectionError.value = 'Project ID and extension token are required.'
     return
   }
 
   connectionState.value = 'checking'
+  connectionError.value = ''
   try {
     const response = await fetch(`${config.apiBaseUrl}/verify-extension-token?projectId=${encodeURIComponent(config.projectId)}`, {
       headers: { Authorization: `Bearer ${config.apiToken}` },
     })
-    connectionState.value = response.ok ? 'connected' : 'disconnected'
-  } catch {
+    if (response.ok) {
+      connectionState.value = 'connected'
+      return
+    }
+    const body = await response.json().catch(() => ({}))
     connectionState.value = 'disconnected'
+    connectionError.value = body.error || `Connection failed (HTTP ${response.status})`
+  } catch (err: any) {
+    connectionState.value = 'disconnected'
+    connectionError.value = err.message || 'Could not reach the functions URL.'
   }
 }
 
@@ -64,6 +74,7 @@ async function saveConfig() {
             {{ connectionState === 'checking' ? 'Checking connection...' : isConnected ? 'Project connected' : 'Project not connected' }}
           </span>
           <span class="connection-detail">{{ projectLabel }}</span>
+          <span v-if="connectionError && connectionState === 'disconnected'" class="connection-error">{{ connectionError }}</span>
         </div>
       </div>
       <button type="button" class="icon-command" :aria-expanded="isExpanded" @click="isExpanded = !isExpanded">
