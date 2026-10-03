@@ -192,8 +192,8 @@ function getTypeBadgeClass(type: string): string {
     case 'positive': return 'bg-emerald-50 text-emerald-700 border-emerald-200'
     case 'negative': return 'bg-rose-50 text-rose-700 border-rose-200'
     case 'edge-case': return 'bg-amber-50 text-amber-700 border-amber-200'
-    case 'security': return 'bg-purple-50 text-purple-700 border-purple-200'
-    default: return 'bg-indigo-50 text-indigo-700 border-indigo-200'
+    case 'security': return 'bg-primary-50 text-primary-700 border-primary-200'
+    default: return 'bg-primary-50 text-primary-700 border-primary-200'
   }
 }
 
@@ -280,25 +280,25 @@ async function importSelectedScenarios() {
     <div>
       <router-link
         :to="`/projects/${route.params.id}`"
-        class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-indigo-600"
+        class="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-primary-600"
       >
         <span aria-hidden="true">←</span>
         <span>Back to Page Audits</span>
       </router-link>
       <div class="flex items-center gap-2.5">
-        <h1 class="text-2xl font-bold text-gray-900">Test Cases</h1>
-        <span class="inline-flex items-center rounded-full bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
+        <h1 class="text-2xl font-bold text-slate-900">Test Cases</h1>
+        <span class="inline-flex items-center rounded-full bg-primary-50 border border-primary-200 px-2.5 py-0.5 text-xs font-semibold text-primary-700">
           {{ testCases.length }} total
         </span>
       </div>
-      <p class="mt-1 text-sm text-gray-500">Manage QA manual test scenarios & AI-powered Playwright automations</p>
+      <p class="mt-1 text-sm text-slate-500">Manage QA manual test scenarios & AI-powered Playwright automations</p>
     </div>
 
     <!-- Actions -->
     <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
       <button
         @click="showAiStoryModal = true"
-        class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 px-3.5 py-2 text-sm font-semibold text-white shadow hover:from-indigo-700 hover:to-violet-700 transition-all"
+        class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-3.5 py-2 text-sm font-semibold text-white shadow-md hover:bg-primary-700 transition-all"
         title="Convert user story or acceptance criteria into a test case suite"
       >
         <i class="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
@@ -307,7 +307,7 @@ async function importSelectedScenarios() {
 
       <button
         @click="showCreateForm = true"
-        class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 transition-colors"
+        class="inline-flex items-center gap-2 rounded-lg bg-[#14213d] px-3.5 py-2 text-sm font-semibold text-white shadow-md hover:bg-[#0f1a31] transition-colors"
       >
         <i class="fa-solid fa-plus text-xs"></i>
         <span>Add Test Case</span>
@@ -317,23 +317,23 @@ async function importSelectedScenarios() {
 
   <!-- Loading State -->
   <div v-if="loading" class="flex items-center justify-center py-20">
-    <div class="h-8 w-8 rounded-full border-4 border-indigo-600 border-t-transparent animate-spin"></div>
+    <div class="h-8 w-8 rounded-full border-4 border-primary-600 border-t-transparent animate-spin"></div>
   </div>
 
   <!-- Empty State -->
-  <div v-else-if="testCases.length === 0" class="card p-8 text-center sm:p-16 border-2 border-dashed border-slate-200">
-    <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 text-2xl mb-4">
+  <div v-else-if="testCases.length === 0" class="card p-8 text-center sm:p-16 border-2 border-dashed border-[#d8e8e5]">
+    <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 text-2xl mb-4">
       <i class="fa-solid fa-vial-circle-check"></i>
     </div>
-    <h3 class="text-lg font-semibold text-gray-900">No test cases in this project yet</h3>
-    <p class="mt-1 text-sm text-gray-500 max-w-md mx-auto">
+    <h3 class="text-lg font-semibold text-slate-900">No test cases in this project yet</h3>
+    <p class="mt-1 text-sm text-slate-500 max-w-md mx-auto">
       Create test cases manually or use our AI Generator to instantly build test suites from your feature requirements.
     </p>
 
     <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
       <button
         @click="showAiStoryModal = true"
-        class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow hover:bg-indigo-700"
+        class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-primary-700"
       >
         <i class="fa-solid fa-wand-magic-sparkles text-amber-300"></i>
         <span>Generate from User Story</span>
@@ -349,7 +349,7 @@ async function importSelectedScenarios() {
     <div
       v-for="tc in testCases"
       :key="tc.id"
-      class="card p-4 hover:shadow-md cursor-pointer transition-all hover:-translate-y-0.5 border border-slate-200 hover:border-indigo-300"
+      class="card p-4 hover:shadow-md cursor-pointer transition-all hover:-translate-y-0.5 border border-slate-200 hover:border-primary-300"
       @click="openTestCase(tc)"
     >
       <div class="flex items-start justify-between gap-4">
@@ -362,8 +362,8 @@ async function importSelectedScenarios() {
               {{ tc.status }}
             </span>
             <h3 class="font-semibold text-gray-900 flex-1 text-base">{{ tc.title }}</h3>
-            <span v-if="tc.playwrightScript" class="inline-flex items-center gap-1.5 rounded-full bg-purple-100 border border-purple-200 px-2.5 py-0.5 text-xs text-purple-700 font-medium">
-              <i class="fa-solid fa-code text-purple-600 text-xs"></i> Playwright Ready
+            <span v-if="tc.playwrightScript" class="inline-flex items-center gap-1.5 rounded-full bg-primary-100 border border-primary-200 px-2.5 py-0.5 text-xs text-primary-700 font-medium">
+              <i class="fa-solid fa-code text-primary-600 text-xs"></i> Playwright Ready
             </span>
           </div>
 
@@ -398,7 +398,7 @@ async function importSelectedScenarios() {
       <!-- Modal Header -->
       <div class="card-header flex items-center justify-between border-b border-slate-200 pb-4">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white shadow-sm">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white shadow-sm">
             <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
           </div>
           <div>
@@ -415,12 +415,12 @@ async function importSelectedScenarios() {
         <div>
           <div class="flex items-center justify-between mb-2">
             <label class="text-sm font-semibold text-gray-900">Feature Description / Acceptance Criteria</label>
-            <div class="flex items-center gap-1.5 text-xs text-indigo-600">
+            <div class="flex items-center gap-1.5 text-xs text-primary-600">
               <span class="text-gray-400">Quick Presets:</span>
               <button
                 type="button"
                 @click="setStoryPreset('As a registered user, I want to reset my password using an email verification OTP code within 10 minutes so that I can regain access if I forgot it.')"
-                class="hover:underline text-indigo-600 font-medium"
+                class="hover:underline text-primary-600 font-medium"
               >
                 Password Reset
               </button>
@@ -428,7 +428,7 @@ async function importSelectedScenarios() {
               <button
                 type="button"
                 @click="setStoryPreset('As a shopper, I want to search products by keyword, filter by price range and rating, and sort results by lowest price or popularity.')"
-                class="hover:underline text-indigo-600 font-medium"
+                class="hover:underline text-primary-600 font-medium"
               >
                 Search & Filter
               </button>
@@ -436,7 +436,7 @@ async function importSelectedScenarios() {
               <button
                 type="button"
                 @click="setStoryPreset('As an authenticated customer, I want to apply a discount promo code during checkout, calculate real-time cart total deduction, and pay with a credit card.')"
-                class="hover:underline text-indigo-600 font-medium"
+                class="hover:underline text-primary-600 font-medium"
               >
                 Checkout & Promo
               </button>
@@ -455,19 +455,19 @@ async function importSelectedScenarios() {
             <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Test Coverage Types</label>
             <div class="grid grid-cols-2 gap-2 text-xs">
               <label class="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" value="positive" v-model="storyFocusTypes" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" value="positive" v-model="storyFocusTypes" class="rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
                 <span>🟢 Positive (Happy Path)</span>
               </label>
               <label class="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" value="negative" v-model="storyFocusTypes" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" value="negative" v-model="storyFocusTypes" class="rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
                 <span>🔴 Negative (Error Handling)</span>
               </label>
               <label class="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" value="edge-case" v-model="storyFocusTypes" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" value="edge-case" v-model="storyFocusTypes" class="rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
                 <span>🟠 Edge Cases (Boundary)</span>
               </label>
               <label class="flex items-center gap-2 font-medium text-slate-700 cursor-pointer">
-                <input type="checkbox" value="security" v-model="storyFocusTypes" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" value="security" v-model="storyFocusTypes" class="rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
                 <span>🟣 Security & Validation</span>
               </label>
             </div>
@@ -476,7 +476,7 @@ async function importSelectedScenarios() {
           <div class="flex flex-col justify-between">
             <div>
               <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">Scenario Count: {{ storyCount }}</label>
-              <input type="range" v-model.number="storyCount" min="3" max="10" step="1" class="w-full accent-indigo-600" />
+              <input type="range" v-model.number="storyCount" min="3" max="10" step="1" class="w-full accent-primary-600" />
               <div class="flex justify-between text-[11px] text-slate-400 mt-1">
                 <span>3 Quick</span>
                 <span>6 Balanced</span>
@@ -488,7 +488,7 @@ async function importSelectedScenarios() {
               <button
                 type="button"
                 @click="handleGenerateScenarios"
-                class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-50 transition-all"
+                class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-primary-700 disabled:opacity-50 transition-all"
                 :disabled="generatingStory || !storyInput.trim()"
               >
                 <span v-if="generatingStory" class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
@@ -521,7 +521,7 @@ async function importSelectedScenarios() {
             <button
               type="button"
               @click="toggleSelectAllScenarios"
-              class="text-xs text-indigo-600 font-semibold hover:underline"
+                class="text-xs text-primary-600 font-semibold hover:underline"
             >
               {{ generatedScenarios.every(s => s.selected) ? 'Deselect All' : 'Select All' }}
             </button>
@@ -532,13 +532,13 @@ async function importSelectedScenarios() {
               v-for="scen in generatedScenarios"
               :key="scen.id"
               class="rounded-xl border p-4 transition-all"
-              :class="scen.selected ? 'border-indigo-300 bg-indigo-50/20 shadow-sm' : 'border-slate-200 bg-slate-50/50 opacity-70'"
+              :class="scen.selected ? 'border-primary-300 bg-primary-50/20 shadow-sm' : 'border-slate-200 bg-slate-50/50 opacity-70'"
             >
               <div class="flex items-start gap-3">
                 <input
                   type="checkbox"
                   v-model="scen.selected"
-                  class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  class="mt-1 h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
                 />
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 flex-wrap mb-1.5">
@@ -676,7 +676,7 @@ async function importSelectedScenarios() {
               class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
               :class="getStatusClass(selectedTestCase.status)"
             >{{ selectedTestCase.status }}</span>
-            <span v-if="selectedTestCase.playwrightScript" class="inline-flex items-center gap-1 rounded-full bg-purple-100 border border-purple-200 px-2.5 py-0.5 text-xs text-purple-700 font-medium">
+            <span v-if="selectedTestCase.playwrightScript" class="inline-flex items-center gap-1 rounded-full bg-primary-100 border border-primary-200 px-2.5 py-0.5 text-xs text-primary-700 font-medium">
               <i class="fa-solid fa-code text-xs"></i> Playwright Script Generated
             </span>
           </div>
@@ -720,7 +720,7 @@ async function importSelectedScenarios() {
               :key="idx"
               class="flex gap-3 text-sm bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm"
             >
-              <span class="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center">{{ idx + 1 }}</span>
+              <span class="flex-shrink-0 h-5 w-5 rounded-full bg-primary-100 text-primary-700 font-bold text-xs flex items-center justify-center">{{ idx + 1 }}</span>
               <span class="text-gray-800">{{ step.replace(/^\d+\.\s*/, '') }}</span>
             </li>
           </ol>
@@ -739,13 +739,14 @@ async function importSelectedScenarios() {
         </div>
 
         <!-- Playwright Script Section -->
-        <div class="border-t border-gray-100 pt-4">
+        <div v-if="false" class="border-t border-gray-100 pt-4">
           <div class="flex items-center justify-between mb-3">
             <p class="text-xs font-bold text-gray-700 uppercase tracking-wide flex items-center gap-1.5">
-              <i class="fa-solid fa-laptop-code text-purple-600"></i>
+              <i class="fa-solid fa-laptop-code text-primary-600"></i>
               <span>Playwright TypeScript Automation</span>
             </p>
             <button
+              v-if="false"
               @click="generateScript(selectedTestCase)"
               class="btn-primary text-xs px-3 py-1.5"
               :disabled="generatingFor === selectedTestCase.id"

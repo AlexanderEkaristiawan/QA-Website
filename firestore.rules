@@ -17,6 +17,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if request.auth.uid == userId;
     }
+
+    match /dashboard_notes/{userId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == userId;
+    }
     
     match /projects/{projectId} {
       allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;

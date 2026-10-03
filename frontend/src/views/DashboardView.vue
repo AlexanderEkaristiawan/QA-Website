@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAuthStore } from '@/composables/useAuth'
 import { useProjectStore } from '@/composables/useFirestore'
 import {
-  collection, query, where, getDocs, orderBy, limit,
+  collection, query, where, getDocs, getDoc, setDoc, doc, orderBy, limit,
 } from 'firebase/firestore'
 import { db } from '@/firebase/config'
 import type { Project, AuditJob, BugItem } from '@/types'
@@ -19,8 +19,143 @@ const recentAuditsCount = ref<number | null>(null)
 const openBugsCount = ref<number | null>(null)
 const avgPerformance = ref<number | null>(null)
 
+interface DashboardNote {
+  id: string
+  text: string
+  done: boolean
+}
+
+const notesByDate = ref<Record<string, DashboardNote[]>>({})
+const selectedDate = ref(toDateKey(new Date()))
+const displayedMonth = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+const noteDraft = ref('')
+const notesSaving = ref(false)
+const notesLoaded = ref(false)
+const notesSyncError = ref(false)
+const notesRevision = ref(0)
+
 let unsubscribe: (() => void) | null = null
 let statsLoaded = false
+
+function toDateKey(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function parseDateKey(key: string): Date {
+  const [year, month, day] = key.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+const monthLabel = computed(() => displayedMonth.value.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))
+
+const calendarDays = computed(() => {
+  const firstDay = new Date(displayedMonth.value.getFullYear(), displayedMonth.value.getMonth(), 1)
+  const start = new Date(firstDay)
+  start.setDate(firstDay.getDate() - firstDay.getDay())
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start)
+    date.setDate(start.getDate() + index)
+    const key = toDateKey(date)
+    return {
+      key,
+      day: date.getDate(),
+      inMonth: date.getMonth() === displayedMonth.value.getMonth(),
+      isToday: key === toDateKey(new Date()),
+      noteCount: notesByDate.value[key]?.length || 0,
+      completedCount: notesByDate.value[key]?.filter(note => note.done).length || 0,
+    }
+  })
+})
+
+const selectedNotes = computed(() => notesByDate.value[selectedDate.value] || [])
+const selectedDateLabel = computed(() => parseDateKey(selectedDate.value).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }))
+
+function localNotesKey(uid: string): string {
+  return `qa-suite-dashboard-notes:${uid}`
+}
+
+function changeMonth(offset: number) {
+  displayedMonth.value = new Date(displayedMonth.value.getFullYear(), displayedMonth.value.getMonth() + offset, 1)
+}
+
+function selectDate(key: string) {
+  selectedDate.value = key
+  const date = parseDateKey(key)
+  displayedMonth.value = new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+async function persistNotes() {
+  const uid = authStore.currentUser.value?.uid
+  if (!uid) return
+  notesSaving.value = true
+  try {
+    localStorage.setItem(localNotesKey(uid), JSON.stringify(notesByDate.value))
+  } catch (err) {
+    console.warn('Dashboard notes local save error:', err)
+  }
+  try {
+    await setDoc(doc(db, 'dashboard_notes', uid), {
+      notes: notesByDate.value,
+      updatedAt: new Date().toISOString(),
+    })
+    notesSyncError.value = false
+  } catch (err) {
+    notesSyncError.value = true
+    console.warn('Dashboard notes save error:', err)
+  } finally {
+    notesSaving.value = false
+  }
+}
+
+async function loadNotes(uid: string) {
+  const revisionAtStart = notesRevision.value
+  try {
+    const localNotes = localStorage.getItem(localNotesKey(uid))
+    if (localNotes) notesByDate.value = JSON.parse(localNotes) as Record<string, DashboardNote[]>
+  } catch (err) {
+    console.warn('Dashboard notes local load error:', err)
+  }
+
+  try {
+    const snapshot = await getDoc(doc(db, 'dashboard_notes', uid))
+    const storedNotes = snapshot.data()?.notes
+    if (revisionAtStart === notesRevision.value && storedNotes && typeof storedNotes === 'object') {
+      notesByDate.value = storedNotes as Record<string, DashboardNote[]>
+      localStorage.setItem(localNotesKey(uid), JSON.stringify(notesByDate.value))
+    }
+    notesSyncError.value = false
+  } catch (err) {
+    notesSyncError.value = true
+    console.warn('Dashboard notes load error:', err)
+  } finally {
+    notesLoaded.value = true
+  }
+}
+
+async function addNote() {
+  const text = noteDraft.value.trim()
+  if (!text) return
+  const notes = notesByDate.value[selectedDate.value] || []
+  notesByDate.value[selectedDate.value] = [...notes, { id: `note-${Date.now()}`, text, done: false }]
+  notesRevision.value++
+  noteDraft.value = ''
+  await persistNotes()
+}
+
+async function toggleNote(note: DashboardNote) {
+  note.done = !note.done
+  notesRevision.value++
+  await persistNotes()
+}
+
+async function removeNote(noteId: string) {
+  notesByDate.value[selectedDate.value] = selectedNotes.value.filter(note => note.id !== noteId)
+  notesRevision.value++
+  await persistNotes()
+}
 
 // ── Lazy stats fetch ─────────────────────────────────────────────────────────
 // Runs once when projects first resolve. Uses getDocs (not onSnapshot) to avoid
@@ -83,6 +218,8 @@ async function loadStats(projectIds: string[]) {
 
 onMounted(() => {
   if (!authStore.currentUser.value) return
+
+  void loadNotes(authStore.currentUser.value.uid)
 
   unsubscribe = projectStore.subscribeProjects(authStore.currentUser.value.uid, (data) => {
     projects.value = data
@@ -154,12 +291,12 @@ function displayPerf(val: number | null): string {
         </div>
       </div>
 
-      <!-- Avg Performance Score -->
+      <!-- Average PageSpeed Score -->
       <div class="card p-4 sm:p-6">
         <div class="flex items-center gap-4">
           <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100 text-purple-600">📊</div>
           <div>
-            <p class="text-sm text-gray-500">Avg Performance</p>
+            <p class="text-sm text-gray-500">Average PageSpeed Score</p>
             <p
               class="text-2xl font-bold tabular-nums"
               :class="avgPerformance === null || avgPerformance === 0
@@ -207,6 +344,92 @@ function displayPerf(val: number | null): string {
         </router-link>
       </div>
     </div>
+
+    <!-- Daily planning calendar -->
+    <section class="mt-8 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm sm:mt-10" aria-labelledby="daily-planner-title">
+      <div class="border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-white px-5 py-5 sm:px-7">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-lg text-emerald-700">✓</span>
+              <div>
+                <h2 id="daily-planner-title" class="text-lg font-bold text-slate-900">Daily planner</h2>
+                <p class="text-sm text-slate-500">Capture what you finished and what comes next.</p>
+              </div>
+            </div>
+          </div>
+          <span v-if="notesSaving" class="text-xs font-medium text-emerald-700">Saving changes...</span>
+          <span v-else-if="notesSyncError" class="text-xs font-medium text-amber-600">Saved on this device; cloud sync unavailable</span>
+          <span v-else-if="notesLoaded" class="text-xs font-medium text-slate-400">Synced to your account</span>
+        </div>
+      </div>
+
+      <div class="grid lg:grid-cols-[1.25fr_0.75fr]">
+        <div class="border-b border-slate-100 p-5 sm:p-7 lg:border-b-0 lg:border-r">
+          <div class="mb-5 flex items-center justify-between">
+            <div>
+              <p class="text-xs font-bold uppercase tracking-wider text-emerald-700">Your schedule</p>
+              <h3 class="mt-1 text-xl font-bold text-slate-900">{{ monthLabel }}</h3>
+            </div>
+            <div class="flex items-center gap-1">
+              <button type="button" class="h-8 w-8 rounded-lg text-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-700" aria-label="Previous month" @click="changeMonth(-1)">‹</button>
+              <button type="button" class="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50" @click="selectDate(toDateKey(new Date()))">Today</button>
+              <button type="button" class="h-8 w-8 rounded-lg text-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-700" aria-label="Next month" @click="changeMonth(1)">›</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400 sm:gap-2">
+            <span v-for="weekday in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="weekday">{{ weekday }}</span>
+          </div>
+          <div class="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
+            <button
+              v-for="day in calendarDays"
+              :key="day.key"
+              type="button"
+              class="relative flex min-h-14 flex-col items-center rounded-xl border p-1.5 text-sm transition-colors sm:min-h-16"
+              :class="selectedDate === day.key ? 'border-emerald-500 bg-emerald-50 text-emerald-800 shadow-sm' : day.inMonth ? 'border-slate-100 bg-white text-slate-700 hover:border-emerald-200 hover:bg-emerald-50/50' : 'border-transparent bg-slate-50/60 text-slate-300'"
+              @click="selectDate(day.key)"
+            >
+              <span class="flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold" :class="day.isToday ? 'bg-emerald-600 text-white' : ''">{{ day.day }}</span>
+              <span v-if="day.noteCount" class="mt-1 flex items-center gap-0.5">
+                <i v-for="index in Math.min(day.noteCount, 3)" :key="index" class="h-1.5 w-1.5 rounded-full" :class="index <= day.completedCount ? 'bg-emerald-500' : 'bg-amber-400'"></i>
+              </span>
+            </button>
+          </div>
+          <div class="mt-4 flex items-center gap-4 text-[11px] text-slate-400">
+            <span class="flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-emerald-500"></i>Done</span>
+            <span class="flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-amber-400"></i>Planned</span>
+          </div>
+        </div>
+
+        <div class="flex min-h-[360px] flex-col p-5 sm:p-7">
+          <div class="mb-4">
+            <p class="text-xs font-bold uppercase tracking-wider text-emerald-700">Daily checklist</p>
+            <h3 class="mt-1 text-lg font-bold text-slate-900">{{ selectedDateLabel }}</h3>
+          </div>
+
+          <div v-if="selectedNotes.length" class="mb-4 flex-1 space-y-2 overflow-y-auto">
+            <div v-for="note in selectedNotes" :key="note.id" class="group flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+              <input :checked="note.done" type="checkbox" class="mt-0.5 h-4 w-4 rounded border-slate-300 accent-emerald-600 focus:ring-emerald-500" @change="toggleNote(note)" />
+              <span class="min-w-0 flex-1 text-sm leading-5" :class="note.done ? 'text-slate-400 line-through' : 'text-slate-700'">{{ note.text }}</span>
+              <button type="button" class="rounded-md px-1 text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-500" aria-label="Delete note" title="Delete note" @click="removeNote(note.id)">
+                <i class="fa-solid fa-trash-can text-xs"></i>
+              </button>
+            </div>
+          </div>
+          <div v-else class="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center">
+            <span class="text-2xl">✦</span>
+            <p class="mt-2 text-sm font-semibold text-slate-700">Nothing planned yet</p>
+            <p class="mt-1 text-xs text-slate-400">Add a task or note for this day.</p>
+          </div>
+
+          <form class="mt-4 flex gap-2" @submit.prevent="addNote">
+            <input v-model="noteDraft" type="text" maxlength="160" class="input min-w-0 flex-1 text-sm" placeholder="Add a task or note..." aria-label="Add a task or note" />
+            <button type="submit" class="btn-primary shrink-0 px-3 text-sm" :disabled="!noteDraft.trim()">Add</button>
+          </form>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 

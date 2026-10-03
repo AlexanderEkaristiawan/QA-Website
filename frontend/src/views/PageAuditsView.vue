@@ -122,6 +122,7 @@ const selectedPerformancePage = ref<ProjectPage | null>(null)
 // Batch running states
 const batchRunningSeo = ref(false)
 const batchRunningPerf = ref(false)
+const batchRunningZap = ref(false)
 const batchProgress = ref({ current: 0, total: 0 })
 
 let unsubscribe: (() => void) | null = null
@@ -460,6 +461,18 @@ async function runAllPageSpeed() {
   batchRunningPerf.value = false
 }
 
+async function runAllZap() {
+  if (batchRunningZap.value) return
+  batchRunningZap.value = true
+  batchProgress.value = { current: 0, total: pages.value.length }
+
+  for (const page of pages.value) {
+    batchProgress.value.current++
+    await runSecurityAuditForPage(page)
+  }
+  batchRunningZap.value = false
+}
+
 // ── Delete Page ─────────────────────────────────────────────────────────────
 async function handleDeletePage(page: ProjectPage) {
   if (!confirm(`Remove "${page.url}" from this project's tracked pages?`)) return
@@ -484,7 +497,7 @@ function getScoreBgBadge(score: number | null | undefined): string {
 <template>
   <div v-if="loading" class="flex items-center justify-center py-24">
     <div class="flex flex-col items-center gap-3">
-      <div class="h-10 w-10 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin"></div>
+      <div class="h-10 w-10 rounded-full border-4 border-primary-600 border-t-transparent animate-spin"></div>
       <p class="text-sm text-gray-500">Loading tracked pages...</p>
     </div>
   </div>
@@ -601,11 +614,11 @@ function getScoreBgBadge(score: number | null | undefined): string {
     </div>
 
     <!-- Batch Progress Notification -->
-    <div v-if="batchRunningSeo || batchRunningPerf" class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-xs text-indigo-900">
+    <div v-if="batchRunningSeo || batchRunningPerf || batchRunningZap" class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between text-xs text-indigo-900">
       <div class="flex items-center gap-2">
         <span class="h-4 w-4 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin"></span>
         <span class="font-semibold">
-          {{ batchRunningSeo ? 'Auditing SEO for all pages...' : 'Running PageSpeed benchmarks for all pages...' }}
+          {{ batchRunningSeo ? 'Auditing SEO for all pages...' : batchRunningPerf ? 'Running PageSpeed benchmarks for all pages...' : 'Running ZAP security scans for all pages...' }}
         </span>
         <span class="text-indigo-600">({{ batchProgress.current }} / {{ batchProgress.total }})</span>
       </div>
@@ -669,6 +682,16 @@ function getScoreBgBadge(score: number | null | undefined): string {
 
       <!-- Batch Actions -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full xl:w-auto">
+        <button
+          type="button"
+          @click="runAllZap"
+          class="btn-secondary flex-1 whitespace-nowrap text-xs py-1.5 px-2.5 flex items-center gap-1 text-emerald-700 hover:text-emerald-800"
+          :disabled="batchRunningZap || pages.length === 0"
+          title="Run OWASP ZAP security audit on every page in sequence"
+        >
+          <span>🛡️ Run All ZAP</span>
+        </button>
+
         <button
           type="button"
           @click="runAllSeo"
@@ -790,7 +813,6 @@ function getScoreBgBadge(score: number | null | undefined): string {
                     >
                       <span>{{ page.seoStatus === 'good' ? '✓' : '⚠' }}</span>
                       <span>{{ page.seoStatus === 'good' ? 'Good SEO' : `${page.issues?.length || 0} Issue(s)` }}</span>
-                      <span v-if="typeof page.seoScore === 'number'" class="shrink-0 opacity-75">({{ page.seoScore }}/100)</span>
                     </span>
 
                   </div>

@@ -17,34 +17,29 @@ for (const p of envPaths) {
   }
 }
 
-// CORS helper — allow only trusted origins in production.
+// CORS helper — allows the Netlify site, Chrome extension origins, and
+// any custom origins listed in ALLOWED_ORIGINS (comma-separated env var).
 // Returns a fully-defined Record<string, string> so that it satisfies
 // Netlify's HandlerResponse header index signature (no undefined values).
 export function corsHeaders(origin?: string): Record<string, string> {
-  const allowed = (process.env.ALLOWED_ORIGINS?.split(',') ?? []).map(s => s.trim()).filter(Boolean)
-  if (allowed.length === 0) {
-    allowed.push('http://localhost:5173', 'http://localhost:5175', 'http://localhost:8888')
-  }
-  const o = origin ?? '*'
+  const o = origin ?? ''
+
+  // Always allow Chrome extensions regardless of environment
+  const isChromeExtension = o.startsWith('chrome-extension://')
+
+  // Always allow localhost during development
   const isLocalDevOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o)
 
-  if (process.env.NODE_ENV !== 'production' && isLocalDevOrigin) {
-    return {
-      'Access-Control-Allow-Origin': o,
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    }
-  }
+  // Explicitly allowed origins from env var (e.g. your Netlify site URL)
+  const allowed = (process.env.ALLOWED_ORIGINS?.split(',') ?? []).map(s => s.trim()).filter(Boolean)
 
-  if (process.env.NODE_ENV === 'production' && !allowed.includes(o)) {
-    return {
-      'Access-Control-Allow-Origin': allowed[0],
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    }
-  }
+  const effectiveOrigin =
+    isChromeExtension || isLocalDevOrigin || allowed.includes(o) || allowed.length === 0
+      ? (o || '*')
+      : (allowed[0] ?? '*')
+
   return {
-    'Access-Control-Allow-Origin': o,
+    'Access-Control-Allow-Origin': effectiveOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
   }
