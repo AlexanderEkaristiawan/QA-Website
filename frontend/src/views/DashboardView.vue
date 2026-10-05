@@ -252,9 +252,30 @@ function displayPerf(val: number | null): string {
 
 <template>
   <div>
-    <div class="mb-6 sm:mb-8">
-      <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
-      <p class="mt-1 text-gray-500">Overview of your QA projects and recent audits</p>
+    <div class="mb-6 sm:mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <p class="mt-1 text-gray-500">Overview of your QA projects and recent audits</p>
+      </div>
+
+      <!-- Download Extension Button -->
+      <a
+        href="/qa-suite-extension.zip"
+        download="qa-suite-extension.zip"
+        class="ext-download-btn"
+        title="Download QA-Suite Companion extension and load it in Chrome via chrome://extensions → Load unpacked"
+      >
+        <span class="ext-download-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+            <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+          </svg>
+        </span>
+        <span class="ext-download-label">
+          <span class="ext-download-title">Download Extension</span>
+          <span class="ext-download-sub">Chrome • Load unpacked</span>
+        </span>
+      </a>
     </div>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
@@ -433,3 +454,55 @@ function displayPerf(val: number | null): string {
   </div>
 </template>
 
+<style scoped>
+/* ── Extension Download Button ──────────────────────────────────────────── */
+.ext-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #fff;
+  border-radius: 0.75rem;
+  text-decoration: none;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  align-self: flex-start;
+}
+.ext-download-btn:hover {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.35);
+  transform: translateY(-1px);
+}
+.ext-download-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.2);
+}
+.ext-download-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: rgba(255,255,255,0.12);
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+.ext-download-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.ext-download-title {
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+.ext-download-sub {
+  font-size: 0.7rem;
+  opacity: 0.65;
+  line-height: 1;
+}
+</style>
