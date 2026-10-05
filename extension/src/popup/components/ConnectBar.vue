@@ -32,21 +32,30 @@ async function verifyConnection(config: ExtensionConfig) {
   connectionState.value = 'checking'
   connectionError.value = ''
   try {
-    const response = await fetch(`${config.apiBaseUrl}/verify-extension-token?projectId=${encodeURIComponent(config.projectId)}`, {
-      headers: { Authorization: `Bearer ${config.apiToken}` },
+    const url = `${config.apiBaseUrl}/verify-extension-token?projectId=${encodeURIComponent(config.projectId)}`
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        Accept: 'application/json',
+      },
     })
-    if (response.ok) {
+
+    // Use response.json() so the browser handles content-encoding (gzip etc.) properly.
+    // Fall back gracefully if the body isn't valid JSON.
+    let body: { connected?: boolean; error?: string } = {}
+    try {
+      body = await response.json()
+    } catch {
+      // Non-JSON response — read as text for the error message
+      const raw = await response.clone().text().catch(() => '')
+      body.error = raw.replace(/[^\x20-\x7E]/g, '').slice(0, 160) || `HTTP ${response.status} — unexpected response format`
+    }
+
+    if (response.ok && body.connected !== false) {
       connectionState.value = 'connected'
       return
     }
-    const responseText = await response.text()
-    const cleanResponseText = responseText.replace(/^\uFEFF/, '').replace(/^ï»¿/, '')
-    let body: { error?: string } = {}
-    try {
-      body = JSON.parse(cleanResponseText || '{}')
-    } catch {
-      body.error = cleanResponseText.slice(0, 160) || 'The server returned an invalid response.'
-    }
+
     connectionState.value = 'disconnected'
     connectionError.value = body.error || `Connection failed (HTTP ${response.status})`
   } catch (err: any) {
