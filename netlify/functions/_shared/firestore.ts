@@ -91,9 +91,18 @@ function initAdmin(): admin.app.App {
   })
 }
 
+// Lazy Firestore singleton — created once with preferRest:true so that
+// Firestore uses HTTP/REST instead of gRPC.  This avoids the OpenSSL 3
+// incompatibility that causes "DECODER routines::unsupported" on Node 18.
+let _db: admin.firestore.Firestore | null = null
+
 export function getDb(): admin.firestore.Firestore {
+  if (_db) return _db
   initAdmin()
-  return admin.firestore()
+  const db = admin.firestore()
+  db.settings({ preferRest: true })
+  _db = db
+  return _db
 }
 
 export function getAuth(): admin.auth.Auth {
