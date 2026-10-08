@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import ExtensionInstallModal from '@/components/ExtensionInstallModal.vue'
 import { useAuthStore } from '@/composables/useAuth'
 import { useProjectStore } from '@/composables/useFirestore'
 import {
@@ -10,6 +11,12 @@ import type { Project, AuditJob, BugItem } from '@/types'
 
 const authStore = useAuthStore()
 const projectStore = useProjectStore()
+
+const showInstallModal = ref(false)
+
+function handleDownloadExtension() {
+  showInstallModal.value = true
+}
 
 const projects = ref<Project[]>([])
 const loading = ref(true)
@@ -258,24 +265,37 @@ function displayPerf(val: number | null): string {
         <p class="mt-1 text-gray-500">Overview of your QA projects and recent audits</p>
       </div>
 
-      <!-- Download Extension Button -->
-      <a
-        href="/qa-suite-extension.zip"
-        download="qa-suite-extension.zip"
-        class="ext-download-btn"
-        title="Download QA-Suite Companion extension and load it in Chrome via chrome://extensions → Load unpacked"
-      >
-        <span class="ext-download-icon">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
-            <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
-            <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+      <!-- Download Extension Button & Guide -->
+      <div class="flex flex-col sm:items-end gap-1.5 self-start">
+        <a
+          href="/qa-suite-extension.zip"
+          download="qa-suite-extension.zip"
+          @click="handleDownloadExtension"
+          class="ext-download-btn cursor-pointer"
+          title="Download QA-Suite Companion extension and view installation guide"
+        >
+          <span class="ext-download-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+              <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+              <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+            </svg>
+          </span>
+          <span class="ext-download-label">
+            <span class="ext-download-title">Download Extension</span>
+            <span class="ext-download-sub">Chrome • Click for guide</span>
+          </span>
+        </a>
+        <button
+          type="button"
+          @click="showInstallModal = true"
+          class="ext-guide-link"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd" />
           </svg>
-        </span>
-        <span class="ext-download-label">
-          <span class="ext-download-title">Download Extension</span>
-          <span class="ext-download-sub">Chrome • Load unpacked</span>
-        </span>
-      </a>
+          <span>Installation Guide</span>
+        </button>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
@@ -451,6 +471,9 @@ function displayPerf(val: number | null): string {
         </div>
       </div>
     </section>
+
+    <!-- Chrome Extension Installation Guide Modal -->
+    <ExtensionInstallModal v-model="showInstallModal" />
   </div>
 </template>
 
@@ -504,5 +527,23 @@ function displayPerf(val: number | null): string {
   font-size: 0.7rem;
   opacity: 0.65;
   line-height: 1;
+}
+.ext-guide-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #475569;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.375rem;
+  transition: all 0.15s ease;
+}
+.ext-guide-link:hover {
+  color: #2563eb;
+  background: #f1f5f9;
 }
 </style>
